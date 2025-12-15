@@ -1,0 +1,59 @@
+"""
+Configuration module for the Email Automation System.
+Loads environment variables and provides centralized configuration.
+"""
+
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Base directories
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "data"
+LOGS_DIR = BASE_DIR / "logs"
+ATTACHMENTS_DIR = Path(os.getenv("ATTACHMENTS_DIR", "./data/attachments"))
+
+# Ensure directories exist
+DATA_DIR.mkdir(exist_ok=True)
+LOGS_DIR.mkdir(exist_ok=True)
+ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Microsoft Graph API Configuration
+AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
+AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
+AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID")
+OUTLOOK_EMAIL = os.getenv("OUTLOOK_EMAIL")
+OUTLOOK_FOLDER_ID = os.getenv("OUTLOOK_FOLDER_ID", "inbox")
+
+# LLM Configuration
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
+
+# OCR Configuration
+TESSERACT_PATH = os.getenv("TESSERACT_PATH", "/usr/bin/tesseract")
+
+# Database Configuration
+DB_PATH = Path(os.getenv("DB_PATH", "./data/rates.db"))
+AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
+AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
+AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME", "rates")
+
+# Notification Settings
+NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL")
+ENABLE_NOTIFICATIONS = os.getenv("ENABLE_NOTIFICATIONS", "true").lower() == "true"
+
+# Logging Configuration
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FILE = LOGS_DIR / "app.log"
+
+# Supported file types
+SUPPORTED_PDF_EXTENSIONS = [".pdf"]
+SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".tiff", ".bmp"]
+
+# Microsoft Graph API Scopes
+GRAPH_SCOPES = [
+    "https://graph.microsoft.com/.default"
+]
