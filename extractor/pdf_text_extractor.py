@@ -33,43 +33,39 @@ class PDFTextExtractor:
             pdf_path: Path to the PDF file
         
         Returns:
-            Dictionary with extraction results:
-            {
-                'success': bool,
-                'text': str,
-                'is_scanned': bool,
-                'page_count': int,
-                'error': Optional[str]
-            }
-        
-        TODO:
-            - Implement PyPDF2/pdfplumber for digital PDFs
-            - Detect if PDF is scanned (low text content)
-            - Fall back to OCR for scanned PDFs
-            - Handle multi-page PDFs
-            - Preserve basic formatting/structure
-            - Add error handling for corrupt files
+            Dictionary with extraction results
         """
-        logger.info(f"TODO: Extract text from PDF: {pdf_path}")
-        
         result = {
             'success': False,
             'text': '',
             'is_scanned': False,
-            'page_count': 0,
             'error': None
         }
         
         try:
-            # Placeholder logic:
-            # 1. Try digital extraction with PyPDF2/pdfplumber
-            # is_digital = self._try_digital_extraction(pdf_path)
-            # if not is_digital or text is minimal:
-            #     2. Fall back to OCR
-            #     text = self._ocr_fallback(pdf_path)
+            # 1. Determine if scanned
+            is_scanned = self.is_scanned_pdf(pdf_path)
+            result['is_scanned'] = is_scanned
             
-            pass
-        
+            text = ""
+            if is_scanned:
+                # 2. Use OCR fallback
+                logger.info(f"PDF {pdf_path.name} detected as SCANNED. Using OCR.")
+                text = self._ocr_fallback(pdf_path)
+            else:
+                # 3. Use digital extraction
+                logger.info(f"PDF {pdf_path.name} detected as DIGITAL. Using pdfplumber.")
+                text = self._try_digital_extraction(pdf_path)
+                
+                # If digital extraction yielded nothing, try OCR anyway
+                if not text.strip():
+                    logger.warning("Digital extraction yielded empty text. Retrying with OCR.")
+                    text = self._ocr_fallback(pdf_path)
+                    result['is_scanned'] = True  # Treat as scanned
+            
+            result['text'] = text
+            result['success'] = bool(text)
+            
         except Exception as e:
             logger.error(f"Failed to extract text from {pdf_path}: {e}")
             result['error'] = str(e)
@@ -85,15 +81,22 @@ class PDFTextExtractor:
         
         Returns:
             Extracted text
-        
-        TODO:
-            - Implement using PyPDF2 or pdfplumber
-            - Handle password-protected PDFs
-            - Extract text by page
-            - Preserve tables if possible
         """
-        logger.info(f"TODO: Try digital extraction for {pdf_path}")
-        return ""
+        import pdfplumber
+        
+        text_content = []
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                for page in pdf.pages:
+                    # Extract text, preserving layout density
+                    page_text = page.extract_text(x_tolerance=2, y_tolerance=2) or ""
+                    text_content.append(page_text)
+            
+            return "\n\n".join(text_content)
+            
+        except Exception as e:
+            logger.error(f"Digital extraction failed for {pdf_path}: {e}")
+            return ""
     
     def _ocr_fallback(self, pdf_path: Path) -> str:
         """
@@ -104,22 +107,40 @@ class PDFTextExtractor:
         
         Returns:
             OCR-extracted text
-        
-        TODO:
-            - Convert PDF pages to images using pdf2image
-            - Pass images to image_ocr_extractor
-            - Combine text from all pages
-            - Add page number markers
         """
-        logger.info(f"TODO: OCR fallback for {pdf_path}")
-        
-        # Use ImageOCRExtractor for actual OCR
+        from pdf2image import convert_from_path
         from extractor.image_ocr_extractor import ImageOCRExtractor
         
-        # ocr_extractor = ImageOCRExtractor()
-        # Convert PDF to images and extract text
+        logger.info(f"Starting OCR fallback for {pdf_path}")
+        text_content = []
+        ocr_extractor = ImageOCRExtractor(use_cloud=False)
         
-        return ""
+        try:
+            # Convert PDF pages to images
+            # specific poppler_path can be added if not in PATH
+            images = convert_from_path(str(pdf_path))
+            
+            for i, image in enumerate(images):
+                logger.debug(f"Processing page {i+1} with OCR")
+                
+                # Save temp image for OCR SDK
+                temp_img_path = pdf_path.parent / f"temp_page_{i}.jpg"
+                image.save(temp_img_path, "JPEG")
+                
+                try:
+                    result = ocr_extractor.extract_text(temp_img_path)
+                    if result['success']:
+                        text_content.append(result['text'])
+                finally:
+                    # Clean up temp file
+                    if temp_img_path.exists():
+                        temp_img_path.unlink()
+            
+            return "\n\n".join(text_content)
+            
+        except Exception as e:
+            logger.error(f"OCR fallback failed: {e}")
+            return ""
     
     def is_scanned_pdf(self, pdf_path: Path) -> bool:
         """
@@ -130,11 +151,25 @@ class PDFTextExtractor:
         
         Returns:
             True if scanned, False if digital
-        
-        TODO:
-            - Implement heuristic (e.g., text/page ratio)
-            - Check for embedded fonts
-            - Analyze image content percentage
         """
-        logger.info(f"TODO: Detect if {pdf_path} is scanned")
-        return False
+        import pdfplumber
+        
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                if len(pdf.pages) == 0:
+                    return False
+                
+                # Check first 3 pages
+                pages_to_check = pdf.pages[:3]
+                total_chars = 0
+                for page in pages_to_check:
+                    text = page.extract_text() or ""
+                    total_chars += len(text.strip())
+                
+                # If average characters per page is very low, assume scanned
+                avg_chars = total_chars / len(pages_to_check)
+                return avg_chars < 50  # Threshold: fewer than 50 chars considers it scanned
+                
+        except Exception as e:
+            logger.error(f"Failed to detect PDF type for {pdf_path}: {e}")
+            return True  # Fail safe to OCR if uncertain

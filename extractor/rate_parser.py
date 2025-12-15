@@ -28,46 +28,55 @@ class RateParser:
     def parse_rate_data(self, extracted_text: str, source_file: str) -> List[Dict]:
         """
         Parse extracted text into structured rate records.
-        
-        Args:
-            extracted_text: Text extracted from PDF/image
-            source_file: Original filename for reference
-        
-        Returns:
-            List of parsed rate dictionaries
-        
-        TODO:
-            - Send text to LLM for structured parsing
-            - Handle multiple rate entries in one document
-            - Extract all required fields
-            - Add confidence scoring
-            - Implement fallback regex patterns for common formats
         """
-        logger.info(f"TODO: Parse rate data from {source_file}")
-        
-        # Placeholder for LLM integration
         from llm.llm_client import generate_llm_response
+        from llm.prompts import get_rate_parsing_prompt
+        import json
+        from datetime import datetime
         
-        # parsed_data = generate_llm_response(extracted_text)
+        logger.info(f"Parsing rate data from {source_file}...")
         
-        # Expected output structure:
-        rates = []
-        # rate = {
-        #     'hotel_name': 'Example Hotel',
-        #     'room_type': 'Deluxe Double',
-        #     'rate_per_night': 150.00,
-        #     'currency': 'USD',
-        #     'meal_plan': 'Breakfast Included',
-        #     'season_start_date': '2024-01-01',
-        #     'season_end_date': '2024-03-31',
-        #     'conditions': 'Non-refundable',
-        #     'validity_date': '2024-12-31',
-        #     'source_file': source_file,
-        #     'extracted_at': datetime.now().isoformat(),
-        #     'confidence': 0.95
-        # }
+        # Guard clause for empty text
+        if not extracted_text or len(extracted_text.strip()) < 10:
+            logger.warning(f"Text too short for parsing from {source_file}")
+            return []
+
+        # Generate prompt
+        prompt = get_rate_parsing_prompt(extracted_text)
         
-        return rates
+        # Call LLM
+        response = generate_llm_response(prompt, temperature=0.0)
+        
+        # Parse JSON response
+        try:
+            # Clean response if it contains markdown code blocks
+            clean_response = response.replace("```json", "").replace("```", "").strip()
+            parsed_data = json.loads(clean_response)
+            
+            # Ensure we have a list of rates
+            if isinstance(parsed_data, dict):
+                rates = [parsed_data]
+            elif isinstance(parsed_data, list):
+                rates = parsed_data
+            else:
+                logger.error(f"Unexpected JSON format from LLM: {type(parsed_data)}")
+                return []
+                
+            # Enrich with metadata
+            for rate in rates:
+                rate['source_file'] = source_file
+                rate['extracted_at'] = datetime.now().isoformat()
+                rate['confidence'] = 0.90  # Placeholder confidence
+                
+            logger.info(f"Successfully passed {len(rates)} rates from {source_file}")
+            return rates
+            
+        except json.JSONDecodeError:
+            logger.error(f"Failed to decode JSON from LLM response. Response: {response[:100]}...")
+            return []
+        except Exception as e:
+            logger.error(f"Error parsing rate data: {e}")
+            return []
     
     def validate_rate_data(self, rate_data: Dict) -> Dict[str, any]:
         """

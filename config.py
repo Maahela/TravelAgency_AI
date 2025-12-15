@@ -28,8 +28,9 @@ AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID")
 OUTLOOK_EMAIL = os.getenv("OUTLOOK_EMAIL")
 OUTLOOK_FOLDER_ID = os.getenv("OUTLOOK_FOLDER_ID", "inbox")
 
-# LLM Configuration
+# LLM API Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
 
 # OCR Configuration
@@ -54,6 +55,9 @@ SUPPORTED_PDF_EXTENSIONS = [".pdf"]
 SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".tiff", ".bmp"]
 
 # Microsoft Graph API Scopes
+# Microsoft Graph API Scopes
 GRAPH_SCOPES = [
-    "https://graph.microsoft.com/.default"
+    "User.Read",
+    "Mail.Read",
+    "Mail.Send"
 ]

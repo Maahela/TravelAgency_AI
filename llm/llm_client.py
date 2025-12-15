@@ -36,31 +36,45 @@ def generate_llm_response(
         - Add timeout handling
     """
     from config import OPENAI_API_KEY, LLM_MODEL
+    import os
+    import google.generativeai as genai
     
-    if model is None:
-        model = LLM_MODEL
+    # Check for Google API Key first (since user requested switch)
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     
-    logger.info(f"TODO: Generate LLM response using {model}")
-    logger.debug(f"Prompt length: {len(prompt)} characters")
-    
-    # Placeholder implementation:
-    # import openai
-    # openai.api_key = OPENAI_API_KEY
-    # 
-    # messages = []
-    # if system_message:
-    #     messages.append({"role": "system", "content": system_message})
-    # messages.append({"role": "user", "content": prompt})
-    # 
-    # response = openai.ChatCompletion.create(
-    #     model=model,
-    #     messages=messages,
-    #     temperature=temperature
-    # )
-    # 
-    # return response.choices[0].message.content
-    
-    return ""
+    try:
+        if GOOGLE_API_KEY:
+            # Use Google Gemini
+            genai.configure(api_key=GOOGLE_API_KEY)
+            # gemini-flash-latest is the stable alias, safer for free tier
+            model_name = "gemini-flash-latest" 
+            
+            # Construct prompt with system message
+            full_prompt = ""
+            if system_message:
+                full_prompt += f"System: {system_message}\n\n"
+            full_prompt += f"User: {prompt}"
+            
+            model = genai.GenerativeModel(model_name)
+            logger.debug(f"Sending request to Google Gemini")
+            response = model.generate_content(full_prompt)
+            return response.text
+
+        elif OPENAI_API_KEY:
+            # Fallback to OpenAI if Google key missing but OpenAI key present
+            from openai import OpenAI
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            # ... (OpenAI implementation omitted for brevity, keeping existing logic if needed)
+            # For now, replacing strictly with Gemini focus as requested
+            return "Error: OpenAI fallback not fully implemented in this switch. Please use Google Key."
+            
+        else:
+            logger.error("No valid API Key found (GOOGLE_API_KEY or OPENAI_API_KEY).")
+            return "Error: API key missing."
+
+    except Exception as e:
+        logger.error(f"LLM generation failed: {e}")
+        return f"Error generating response: {e}"
 
 
 def parse_rate_with_llm(extracted_text: str) -> Dict:

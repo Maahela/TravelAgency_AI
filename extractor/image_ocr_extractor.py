@@ -87,32 +87,44 @@ class ImageOCRExtractor:
         
         Returns:
             OCR result dictionary
-        
-        TODO:
-            - Implement using pytesseract
-            - Add image preprocessing with Pillow
-            - Configure language (eng, spa, etc.)
-            - Extract confidence data
-            - Handle orientation detection
         """
-        logger.info(f"TODO: Tesseract OCR for {image_path}")
+        from PIL import Image
+        import pytesseract
+        from config import TESSERACT_PATH
         
-        # Placeholder:
-        # from PIL import Image
-        # import pytesseract
-        # from config import TESSERACT_PATH
-        # 
-        # pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
-        # image = Image.open(image_path)
-        # text = pytesseract.image_to_string(image)
-        # confidence = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-        
-        return {
-            'success': False,
-            'text': '',
-            'confidence': 0.0,
-            'error': 'Not implemented'
-        }
+        # Configure Tesseract path if not in system PATH
+        if TESSERACT_PATH:
+            pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
+            
+        try:
+            image = Image.open(image_path)
+            # Perform OCR
+            text = pytesseract.image_to_string(image)
+            
+            # Get confidence details (optional, simplified here)
+            # data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+            
+            return {
+                'success': True,
+                'text': text,
+                'confidence': 0.0,  # Placeholder
+                'error': None
+            }
+            
+        except ImportError:
+             return {
+                'success': False,
+                'text': '',
+                'confidence': 0.0,
+                'error': "Missing dependencies: pip install pytesseract pillow"
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'text': '',
+                'confidence': 0.0,
+                'error': str(e)
+            }
     
     def _cloud_ocr(self, image_path: Path) -> Dict:
         """
@@ -150,14 +162,26 @@ class ImageOCRExtractor:
         
         Returns:
             Path to preprocessed image
-        
-        TODO:
-            - Resize to optimal DPI (300 DPI recommended)
-            - Convert to grayscale
-            - Apply thresholding/binarization
-            - Remove noise
-            - Deskew if rotated
-            - Enhance contrast
         """
-        logger.info(f"TODO: Preprocess image {image_path}")
-        return image_path
+        from PIL import Image, ImageOps
+        
+        try:
+            img = Image.open(image_path)
+            
+            # Convert to grayscale
+            img = ImageOps.grayscale(img)
+            
+            # Resize if too small (simple heuristic)
+            if img.width < 1000:
+                scale = 2
+                img = img.resize((img.width * scale, img.height * scale), Image.Resampling.LANCZOS)
+            
+            # Save to temporary path
+            processed_path = image_path.parent / f"processed_{image_path.name}"
+            img.save(processed_path)
+            
+            return processed_path
+            
+        except Exception as e:
+            logger.warning(f"Image preprocessing failed: {e}")
+            return image_path
