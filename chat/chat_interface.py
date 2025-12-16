@@ -53,15 +53,20 @@ class ChatInterface:
         """
         logger.info(f"Processing query: {user_query}")
         
-        # Extract search criteria from query (simplified)
-        # TODO: Use LLM to parse intent and parameters
-        hotel_name = self._extract_hotel_name(user_query)
+        # Extract search criteria from query using LLM
+        from llm.llm_client import extract_search_params_with_llm
+        params = extract_search_params_with_llm(user_query)
+        logger.info(f"Extracted params: {params}")
         
         # Search database
-        rates = search_rates(hotel_name=hotel_name, db_path=self.db_path)
+        rates = search_rates(
+            hotel_name=params.get('hotel_name'),
+            max_rate=params.get('max_rate'),
+            db_path=self.db_path
+        )
         
         if not rates:
-            return "I couldn't find any rates matching your query."
+            return "I couldn't find any rates matching your criteria in the database."
         
         # Format context for LLM
         context = format_rates_for_llm(rates)
@@ -69,34 +74,7 @@ class ChatInterface:
         # Generate answer using LLM
         answer = answer_query_with_llm(user_query, context)
         
-        # Fallback if LLM fails
-        if not answer:
-            return f"I found {len(rates)} rate(s):\n\n{context}"
-        
         return answer
-    
-    def _extract_hotel_name(self, query: str) -> Optional[str]:
-        """
-        Extract hotel name from query (simplified version).
-        
-        Args:
-            query: User query
-        
-        Returns:
-            Extracted hotel name or None
-        
-        TODO:
-            - Use NLP/LLM for proper entity extraction
-            - Handle multiple hotels in one query
-            - Match against known hotel names
-        """
-        # Simplified: just look for capitalized words
-        words = query.split()
-        for i, word in enumerate(words):
-            if word[0].isupper() and i > 0:
-                # Assume capitalized word after start is hotel name
-                return word
-        return None
     
     def run_cli(self):
         """

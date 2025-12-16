@@ -40,28 +40,42 @@ class OutlookReader:
         Authenticate with Microsoft Graph API using Device Code Flow.
         Allows personal accounts to log in interactively.
         """
+        import os
+        import atexit
+        from msal import PublicClientApplication, SerializableTokenCache
+        
         try:
-            # Token cache setup could be added here for persistence
+            # 1. Setup Token Caching
+            cache_file = ".token_cache.bin"
+            cache = SerializableTokenCache()
             
-            # Using 'common' authority is REQUIRED for personal Microsoft accounts
-            # AND for multi-tenant apps. Since we enabled "AzureADandPersonalMicrosoftAccount",
-            # we must use 'common' (or 'consumers').
+            if os.path.exists(cache_file):
+                cache.deserialize(open(cache_file, "r").read())
+                
+            # Auto-save cache on exit
+            atexit.register(lambda: 
+                open(cache_file, "w").write(cache.serialize()) if cache.has_state_changed else None
+            )
+
+            # 2. Initialize MSAL with Cache
             authority = "https://login.microsoftonline.com/common"
-            
-            # Note: For Device Code Flow, we treat it as a Public Client
-            from msal import PublicClientApplication
             app_public = PublicClientApplication(
                 self.client_id,
-                authority=authority
+                authority=authority,
+                token_cache=cache
             )
             
-            result = None
+            # 3. Try Silent Auth first (using Cache)
             accounts = app_public.get_accounts()
+            result = None
+            
             if accounts:
+                logger.info(f"Found cached account: {accounts[0]['username']}")
                 result = app_public.acquire_token_silent(self.scopes, account=accounts[0])
             
+            # 4. Fallback to Device Flow if Silent Auth fails
             if not result:
-                # 2. Initiate Device Flow
+                logger.info("No valid token in cache. Starting new Device Flow login...")
                 flow = app_public.initiate_device_flow(scopes=self.scopes)
                 if "user_code" not in flow:
                     logger.error(f"Failed to create device flow: {flow.get('error')}")
@@ -92,10 +106,6 @@ class OutlookReader:
                 logger.error(f"Authentication failed. Error: {result.get('error')}")
                 logger.error(f"Description: {result.get('error_description')}")
                 return False
-                
-        except Exception as e:
-            logger.error(f"Authentication exception: {e}")
-            return False
                 
         except Exception as e:
             logger.error(f"Authentication exception: {e}")

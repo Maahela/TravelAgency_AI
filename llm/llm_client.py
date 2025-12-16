@@ -112,6 +112,33 @@ def parse_rate_with_llm(extracted_text: str) -> Dict:
     return rate_data
 
 
+def parse_extended_contract_data(extracted_text: str) -> Dict:
+    """
+    Parse complex contract data (policies, supplements) using LLM.
+    """
+    from llm.prompts import get_extended_contract_extraction_prompt
+    import json
+    
+    prompt = get_extended_contract_extraction_prompt(extracted_text)
+    # Use a creative temperature to allow for better interpretation of complex policy text
+    # but strict enough for JSON structure.
+    response = generate_llm_response(prompt, temperature=0.1)
+    
+    try:
+        # Clean response
+        clean_json = response.strip()
+        if clean_json.startswith("```json"):
+            clean_json = clean_json.split("```json")[1].split("```")[0]
+        elif clean_json.startswith("```"):
+             clean_json = clean_json.split("```")[1].split("```")[0]
+             
+        data = json.loads(clean_json)
+        return data
+    except Exception as e:
+        logger.error(f"Failed to parse extended contract JSON: {e}")
+        return {"error": str(e), "raw_response": response}
+
+
 def generate_email_with_llm(
     email_type: str,
     context: Dict
@@ -151,25 +178,39 @@ def generate_email_with_llm(
 def answer_query_with_llm(query: str, context: str) -> str:
     """
     Answer a query using LLM with provided context (RAG pattern).
-    
-    Args:
-        query: User's question
-        context: Relevant context from database
-    
-    Returns:
-        LLM-generated answer
-    
-    TODO:
-        - Implement retrieval-augmented generation (RAG)
-        - Format context for optimal LLM understanding
-        - Add citation of sources in response
-        - Handle "I don't know" cases gracefully
     """
-    logger.info(f"TODO: Answer query with LLM: {query}")
+    system_message = "You are a helpful travel agency assistant. Answer the user's question based ONLY on the provided hotel rate data. If the answer is not in the context, say you don't know."
+    prompt = f"Context Data:\n{context}\n\nUser Question: {query}\n\nAnswer:"
     
-    # system_message = "Answer the user's question based only on the provided context."
-    # prompt = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
-    # 
-    # response = generate_llm_response(prompt, system_message)
+    return generate_llm_response(prompt, system_message, temperature=0.1)
+
+
+def extract_search_params_with_llm(query: str) -> Dict:
+    """
+    Extract search parameters from natural language query using LLM.
+    Returns a dictionary matching search_rates arguments.
+    """
+    import json
     
-    return ""
+    system_message = """
+    You are a search query parser. Extract search parameters from the user's query into a JSON object.
+    Fields allowed: 'hotel_name' (string), 'max_rate' (number).
+    Do NOT extract 'room_type' or descriptions - we want to retrieve all rooms for the hotel.
+    Return ONLY valid JSON.
+    """
+    prompt = f"Query: {query}\n\nJSON:"
+    
+    response = generate_llm_response(prompt, system_message, temperature=0.0)
+    
+    try:
+        # Clean response to ensure only JSON
+        clean_json = response.strip()
+        if clean_json.startswith("```json"):
+            clean_json = clean_json.split("```json")[1].split("```")[0]
+        elif clean_json.startswith("```"):
+             clean_json = clean_json.split("```")[1].split("```")[0]
+             
+        return json.loads(clean_json)
+    except Exception as e:
+        logger.error(f"Failed to parse search params JSON: {e}")
+        return {}

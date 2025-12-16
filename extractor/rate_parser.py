@@ -169,3 +169,48 @@ class RateParser:
         #     return None
         
         return None
+
+    def extract_and_store_contract_data(self, extracted_text: str, source_file: str) -> bool:
+        """
+        Extract extended contract data and store in 'contract_data' table.
+        """
+        from llm.llm_client import parse_extended_contract_data
+        from database.db_init import get_db_connection
+        from config import DB_PATH
+        import json
+        
+        logger.info(f"Extracting extended contract data from {source_file}...")
+        
+        # 1. Parse with LLM
+        contract_json = parse_extended_contract_data(extracted_text)
+        
+        if not contract_json or "error" in contract_json:
+            logger.error(f"Failed to extract contract data: {contract_json.get('error', 'Unknown error')}")
+            return False
+            
+        # 2. Store in Database
+        try:
+            conn = get_db_connection(DB_PATH)
+            cursor = conn.cursor()
+            
+            # Serialize JSON for storage
+            json_str = json.dumps(contract_json)
+            hotel_name = "Unknown" 
+            # Try to get hotel name from room metadata if available
+            if "room_metadata" in contract_json and len(contract_json["room_metadata"]) > 0:
+                 # Heuristic: Use filename or just denote 'Unknown' for now as the prompt doesn't explicitly ask for hotel name at top level
+                 pass
+            
+            cursor.execute("""
+                INSERT INTO contract_data (hotel_name, source_file, raw_json)
+                VALUES (?, ?, ?)
+            """, (hotel_name, source_file, json_str))
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"Extended contract data stored for {source_file}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to store contract data: {e}")
+            return False

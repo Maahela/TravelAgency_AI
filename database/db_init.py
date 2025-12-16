@@ -80,6 +80,17 @@ def initialize_database(db_path: Path) -> bool:
             )
         """)
         
+        # Create extended contract data table (JSON storage)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS contract_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hotel_name TEXT,
+                source_file TEXT,
+                raw_json TEXT,  -- Storing the full JSON output here
+                extracted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         conn.commit()
         conn.close()
         
