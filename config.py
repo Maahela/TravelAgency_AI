@@ -30,7 +30,23 @@ OUTLOOK_FOLDER_ID = os.getenv("OUTLOOK_FOLDER_ID", "inbox")
 
 # LLM API Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+# Google API Keys (supports multiple for quota rotation)
+# Format in .env: GOOGLE_API_KEY_1=key1, GOOGLE_API_KEY_2=key2, etc.
+GOOGLE_API_KEYS = []
+key_index = 1
+while True:
+    key = os.getenv(f"GOOGLE_API_KEY_{key_index}")
+    if key:
+        GOOGLE_API_KEYS.append(key)
+        key_index += 1
+    else:
+        break
+
+# Fallback to single key if no numbered keys found
+if not GOOGLE_API_KEYS and os.getenv("GOOGLE_API_KEY"):
+    GOOGLE_API_KEYS.append(os.getenv("GOOGLE_API_KEY"))
+
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
 
 # OCR Configuration

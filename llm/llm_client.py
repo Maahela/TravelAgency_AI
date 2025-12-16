@@ -17,64 +17,56 @@ def generate_llm_response(
 ) -> str:
     """
     Generate a response from the LLM based on the prompt.
-    
-    Args:
-        prompt: User prompt/query
-        system_message: System instructions for the LLM
-        model: Model name (defaults to config.LLM_MODEL)
-        temperature: Sampling temperature (0.0 = deterministic, 1.0 = creative)
-    
-    Returns:
-        LLM response as string
-    
-    TODO:
-        - Implement OpenAI API integration
-        - Add error handling and retries
-        - Implement token counting and cost tracking
-        - Add response caching for identical prompts
-        - Support streaming responses for long outputs
-        - Add timeout handling
+    Supports automatic rotation between multiple Google API keys on quota exhaustion.
     """
-    from config import OPENAI_API_KEY, LLM_MODEL
-    import os
+    from config import OPENAI_API_KEY, GOOGLE_API_KEYS, LLM_MODEL
     import google.generativeai as genai
     
-    # Check for Google API Key first (since user requested switch)
-    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    # Try Google API Keys with rotation
+    if GOOGLE_API_KEYS:
+        for key_index, api_key in enumerate(GOOGLE_API_KEYS):
+            try:
+                genai.configure(api_key=api_key)
+                model_name = "gemini-flash-latest"
+                
+                # Construct prompt with system message
+                full_prompt = ""
+                if system_message:
+                    full_prompt += f"System: {system_message}\n\n"
+                full_prompt += f"User: {prompt}"
+                
+                model = genai.GenerativeModel(model_name)
+                logger.debug(f"Sending request to Google Gemini (Key #{key_index + 1})")
+                response = model.generate_content(full_prompt)
+                return response.text
+                
+            except Exception as e:
+                error_str = str(e)
+                
+                # Check if it's a quota error
+                if "quota" in error_str.lower() or "429" in error_str:
+                    logger.warning(f"Key #{key_index + 1} quota exceeded. Trying next key...")
+                    
+                    # If this was the last key, raise the error
+                    if key_index == len(GOOGLE_API_KEYS) - 1:
+                        logger.error(f"All {len(GOOGLE_API_KEYS)} Google API keys exhausted.")
+                        return f"Error: All Google API keys have exceeded their quota. {error_str}"
+                    
+                    # Otherwise, continue to next key
+                    continue
+                else:
+                    # Non-quota error, don't retry
+                    logger.error(f"LLM generation failed (Key #{key_index + 1}): {e}")
+                    return f"Error generating response: {e}"
     
-    try:
-        if GOOGLE_API_KEY:
-            # Use Google Gemini
-            genai.configure(api_key=GOOGLE_API_KEY)
-            # gemini-flash-latest is the stable alias, safer for free tier
-            model_name = "gemini-flash-latest" 
-            
-            # Construct prompt with system message
-            full_prompt = ""
-            if system_message:
-                full_prompt += f"System: {system_message}\n\n"
-            full_prompt += f"User: {prompt}"
-            
-            model = genai.GenerativeModel(model_name)
-            logger.debug(f"Sending request to Google Gemini")
-            response = model.generate_content(full_prompt)
-            return response.text
-
-        elif OPENAI_API_KEY:
-            # Fallback to OpenAI if Google key missing but OpenAI key present
-            from openai import OpenAI
-            client = OpenAI(api_key=OPENAI_API_KEY)
-            # ... (OpenAI implementation omitted for brevity, keeping existing logic if needed)
-            # For now, replacing strictly with Gemini focus as requested
-            return "Error: OpenAI fallback not fully implemented in this switch. Please use Google Key."
-            
-        else:
-            logger.error("No valid API Key found (GOOGLE_API_KEY or OPENAI_API_KEY).")
-            return "Error: API key missing."
-
-    except Exception as e:
-        logger.error(f"LLM generation failed: {e}")
-        return f"Error generating response: {e}"
+    # Fallback to OpenAI
+    elif OPENAI_API_KEY:
+        from openai import OpenAI
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        return "Error: OpenAI fallback not fully implemented. Please use Google Keys."
+    else:
+        logger.error("No valid API Key found (GOOGLE_API_KEYS or OPENAI_API_KEY).")
+        return "Error: API key missing."
 
 
 def parse_rate_with_llm(extracted_text: str) -> Dict:
