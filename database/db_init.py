@@ -91,6 +91,28 @@ def initialize_database(db_path: Path) -> bool:
             )
         """)
         
+        # Create price items table (granular pricing data)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS price_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hotel_name TEXT,
+                source_file TEXT,
+                category TEXT,
+                description TEXT,
+                price REAL,
+                currency TEXT,
+                per_unit TEXT,
+                adult_or_child TEXT,
+                age_range TEXT,
+                applicable_room_types TEXT,
+                applicable_dates TEXT,
+                meal_type TEXT,
+                conditions TEXT,
+                source_text_snippet TEXT,
+                extracted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         conn.commit()
         conn.close()
         

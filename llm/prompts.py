@@ -67,3 +67,65 @@ TEXT TO EXTRACT FROM:
 {extracted_text}
 
 Return ONLY valid JSON."""
+
+
+def get_price_items_extraction_prompt(extracted_text: str) -> str:
+    """Generate prompt for extracting ALL priced items beyond base rates."""
+    return f"""You are analyzing a hotel contract. Extract EVERY price mentioned that is NOT a base room rate.
+
+CATEGORIES TO USE:
+- meal_rate (e.g., "Breakfast $12")
+- meal_plan_supplement (e.g., "HB supplement: $25")
+- extra_person_charge
+- extra_bed_charge
+- child_rate
+- deduction (e.g., "RO deduction: -$10")
+- package_price
+- upgrade_price
+- offer_discount
+- cancellation_fee
+- policy_fee
+- other_charge
+
+FOR EACH PRICE, EXTRACT:
+- category
+- description
+- price (numeric value)
+- currency
+- per_unit (per_person/per_night/per_meal/per_stay)
+- adult_or_child (if specified)
+- age_range (if applicable)
+- applicable_room_types (if specified)
+- applicable_dates (if specified)
+- meal_type (breakfast/lunch/dinner if applicable)
+- conditions
+- source_text_snippet (exact quote from contract)
+
+OUTPUT FORMAT (JSON ONLY):
+{{
+  "priced_items": [
+    {{
+      "category": "meal_rate",
+      "description": "Breakfast per person",
+      "price": 12.0,
+      "currency": "USD",
+      "per_unit": "per_person",
+      "adult_or_child": "adult",
+      "source_text_snippet": "Breakfast – $12 per person"
+    }}
+  ],
+  "unclassified_prices": [],
+  "notes_for_manual_review": []
+}}
+
+RULES:
+- Do NOT skip prices in paragraphs
+- If unsure about category, use "other_charge"
+- Preserve exact wording in source_text_snippet
+- Extract negative prices as deductions
+
+TEXT TO ANALYZE:
+{extracted_text}
+
+Return ONLY valid JSON."""
+

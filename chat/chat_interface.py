@@ -18,61 +18,79 @@ class ChatInterface:
     
     def __init__(self, db_path: Optional[Path] = None):
         """
-        Initialize chat interface.
-        
-        Args:
-            db_path: Path to database
-        
-        TODO:
-            - Add conversation history tracking
-            - Implement multi-turn dialogues
-            - Add quick action buttons/shortcuts
+        Initialize chat interface with conversation memory.
         """
         if db_path is None:
             from config import DB_PATH
             db_path = DB_PATH
         
         self.db_path = db_path
-        logger.info("ChatInterface initialized")
+        self.conversation_history = []  # Track conversation context
+        self.last_hotel = None  # Remember last mentioned hotel
+        logger.info("ChatInterface initialized with conversation memory")
     
     def query(self, user_query: str) -> str:
         """
-        Process a user query and return an answer.
-        
-        Args:
-            user_query: Natural language question
-        
-        Returns:
-            Answer from the system
-        
-        TODO:
-            - Implement intent classification
-            - Extract search parameters from natural language
-            - Support follow-up questions with context
-            - Add suggested queries/autocomplete
+        Process a user query with conversation context.
         """
         logger.info(f"Processing query: {user_query}")
         
-        # Extract search criteria from query using LLM
+        # Extract search criteria from query using LLM with conversation context
         from llm.llm_client import extract_search_params_with_llm
-        params = extract_search_params_with_llm(user_query)
+        from database.query_price_items import search_price_items, format_price_items_for_llm
+        
+        # Build context-aware query
+        context_query = user_query
+        if self.last_hotel and not any(word in user_query.lower() for word in ['hotel', 'property', 'resort']):
+            # User didn't mention a hotel, but we remember one from before
+            context_query = f"Regarding {self.last_hotel}: {user_query}"
+            logger.info(f"Adding context - Last hotel: {self.last_hotel}")
+        
+        params = extract_search_params_with_llm(context_query)
         logger.info(f"Extracted params: {params}")
         
-        # Search database
+        # Update conversation memory
+        if params.get('hotel_name'):
+            self.last_hotel = params['hotel_name']
+        
+        # Search BOTH tables
+        # 1. Base rates table
         rates = search_rates(
             hotel_name=params.get('hotel_name'),
             max_rate=params.get('max_rate'),
             db_path=self.db_path
         )
         
-        if not rates:
-            return "I couldn't find any rates matching your criteria in the database."
+        # 2. Price items table (meal supplements, charges, etc.)
+        price_items = search_price_items(
+            hotel_name=params.get('hotel_name'),
+            db_path=self.db_path
+        )
         
-        # Format context for LLM
-        context = format_rates_for_llm(rates)
+        if not rates and not price_items:
+            return "I couldn't find any rates or pricing information matching your criteria in the database."
+        
+        # Format context for LLM - combine both sources
+        context_parts = []
+        
+        if rates:
+            context_parts.append("BASE ROOM RATES:")
+            context_parts.append(format_rates_for_llm(rates))
+        
+        if price_items:
+            context_parts.append("\n" + format_price_items_for_llm(price_items))
+        
+        context = "\n".join(context_parts)
         
         # Generate answer using LLM
         answer = answer_query_with_llm(user_query, context)
+        
+        # Save to conversation history
+        self.conversation_history.append({
+            'query': user_query,
+            'params': params,
+            'answer': answer
+        })
         
         return answer
     

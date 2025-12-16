@@ -214,3 +214,61 @@ class RateParser:
         except Exception as e:
             logger.error(f"Failed to store contract data: {e}")
             return False
+
+    def extract_and_store_price_items(self, extracted_text: str, source_file: str, hotel_name: str = "Unknown") -> bool:
+        """
+        Extract all priced items and store in 'price_items' table.
+        """
+        from llm.llm_client import extract_all_price_items
+        from database.db_init import get_db_connection
+        from config import DB_PATH
+        
+        logger.info(f"Extracting price items from {source_file}...")
+        
+        # 1. Extract with LLM
+        price_data = extract_all_price_items(extracted_text)
+        
+        if not price_data or "error" in price_data:
+            logger.error(f"Failed to extract price items: {price_data.get('error', 'Unknown error')}")
+            return False
+        
+        # 2. Store in Database
+        try:
+            conn = get_db_connection(DB_PATH)
+            cursor = conn.cursor()
+            
+            items_inserted = 0
+            for item in price_data.get('priced_items', []):
+                cursor.execute("""
+                    INSERT INTO price_items (
+                        hotel_name, source_file, category, description, price, currency,
+                        per_unit, adult_or_child, age_range, applicable_room_types,
+                        applicable_dates, meal_type, conditions, source_text_snippet
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    hotel_name,
+                    source_file,
+                    item.get('category'),
+                    item.get('description'),
+                    item.get('price'),
+                    item.get('currency', 'USD'),
+                    item.get('per_unit'),
+                    item.get('adult_or_child'),
+                    item.get('age_range'),
+                    item.get('applicable_room_types'),
+                    item.get('applicable_dates'),
+                    item.get('meal_type'),
+                    item.get('conditions'),
+                    item.get('source_text_snippet')
+                ))
+                items_inserted += 1
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"Stored {items_inserted} price items for {source_file}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to store price items: {e}")
+            return False
+

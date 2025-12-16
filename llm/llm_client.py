@@ -36,21 +36,28 @@ def generate_llm_response(
                 full_prompt += f"User: {prompt}"
                 
                 model = genai.GenerativeModel(model_name)
-                logger.debug(f"Sending request to Google Gemini (Key #{key_index + 1})")
+                logger.info(f"Sending request to Google Gemini (Key #{key_index + 1})")
                 response = model.generate_content(full_prompt)
                 return response.text
                 
             except Exception as e:
                 error_str = str(e)
                 
-                # Check if it's a quota error
-                if "quota" in error_str.lower() or "429" in error_str:
-                    logger.warning(f"Key #{key_index + 1} quota exceeded. Trying next key...")
+                # Check if it's a quota error (check both exception message and type)
+                is_quota_error = (
+                    "quota" in error_str.lower() or 
+                    "429" in error_str or
+                    "resourceexhausted" in error_str.lower() or
+                    type(e).__name__ == "ResourceExhausted"
+                )
+                
+                if is_quota_error:
+                    logger.info(f"Key #{key_index + 1} quota exceeded. Trying next key...")
                     
                     # If this was the last key, raise the error
                     if key_index == len(GOOGLE_API_KEYS) - 1:
                         logger.error(f"All {len(GOOGLE_API_KEYS)} Google API keys exhausted.")
-                        return f"Error: All Google API keys have exceeded their quota. {error_str}"
+                        return f"Error: All Google API keys have exceeded their quota. Please try again later."
                     
                     # Otherwise, continue to next key
                     continue
@@ -129,6 +136,32 @@ def parse_extended_contract_data(extracted_text: str) -> Dict:
     except Exception as e:
         logger.error(f"Failed to parse extended contract JSON: {e}")
         return {"error": str(e), "raw_response": response}
+
+
+def extract_all_price_items(extracted_text: str) -> Dict:
+    """
+    Extract every priced item from contract text (meal supplements, charges, etc.).
+    """
+    from llm.prompts import get_price_items_extraction_prompt
+    import json
+    
+    prompt = get_price_items_extraction_prompt(extracted_text)
+    response = generate_llm_response(prompt, temperature=0.0)
+    
+    try:
+        # Clean response
+        clean_json = response.strip()
+        if clean_json.startswith("```json"):
+            clean_json = clean_json.split("```json")[1].split("```")[0]
+        elif clean_json.startswith("```"):
+             clean_json = clean_json.split("```")[1].split("```")[0]
+             
+        data = json.loads(clean_json)
+        return data
+    except Exception as e:
+        logger.error(f"Failed to parse price items JSON: {e}")
+        return {"error": str(e), "raw_response": response}
+
 
 
 def generate_email_with_llm(
