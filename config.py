@@ -34,7 +34,9 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
 
 # OCR Configuration
-TESSERACT_PATH = os.getenv("TESSERACT_PATH", "/usr/bin/tesseract")
+# OCR Configuration
+# Default to standard Windows path if not set
+TESSERACT_PATH = os.getenv("TESSERACT_PATH", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 
 # Database Configuration
 DB_PATH = Path(os.getenv("DB_PATH", "./data/rates.db"))
@@ -59,5 +61,6 @@ SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".tiff", ".bmp"]
 GRAPH_SCOPES = [
     "User.Read",
     "Mail.Read",
-    "Mail.Send"
+    "Mail.Send",
+    "Mail.ReadWrite"
 ]

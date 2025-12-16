@@ -77,16 +77,15 @@ class OutlookReader:
             
             if "access_token" in result:
                 self.access_token = result["access_token"]
-                logger.info("Successfully authenticated with Microsoft Graph")
-                # Update target_email to match the signed-in user if possible, 
-                # or rely on /me endpoint (which works now because we are delegated)
+                granted_scopes = result.get("scope", "unknown")
+                logger.info(f"Successfully authenticated with Microsoft Graph")
+                logger.info(f"Granted Scopes: {granted_scopes}")
+                
+                # Update target_email to match the signed-in user if possible
                 if 'id_token_claims' in result:
                     user_email = result['id_token_claims'].get('preferred_username')
                     if user_email:
                          logger.info(f"Signed in as: {user_email}")
-                         # Important: When using delegated auth, we MUST use /me, 
-                         # NOT /users/{id}. So we set target_email to None to trigger /me usage logic?
-                         # Actually, better to just update the API calls to use /me if authenticated this way.
                          
                 return True
             else:
@@ -131,6 +130,10 @@ class OutlookReader:
         
         try:
             response = requests.get(endpoint, headers=headers, params=params)
+            
+            if response.status_code != 200:
+                logger.error(f"API Error {response.status_code}: {response.text}")
+                
             response.raise_for_status()
             
             data = response.json()
