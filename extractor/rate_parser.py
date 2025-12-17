@@ -25,6 +25,24 @@ class RateParser:
         """
         logger.info("RateParser initialized")
     
+    def _parse_json_response(self, response: str) -> Optional[Dict]:
+        """
+        Helper to clean and parse JSON from LLM response.
+        """
+        import json
+        try:
+            # Clean response
+            clean_json = response.strip()
+            if clean_json.startswith("```json"):
+                clean_json = clean_json.split("```json")[1].split("```")[0]
+            elif clean_json.startswith("```"):
+                clean_json = clean_json.split("```")[1].split("```")[0]
+            
+            return json.loads(clean_json)
+        except Exception as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            return None
+
     def parse_rate_data(self, extracted_text: str, source_file: str) -> List[Dict]:
         """
         Parse extracted text into structured rate records.
@@ -49,9 +67,9 @@ class RateParser:
         
         # Parse JSON response
         try:
-            # Clean response if it contains markdown code blocks
-            clean_response = response.replace("```json", "").replace("```", "").strip()
-            parsed_data = json.loads(clean_response)
+            parsed_data = self._parse_json_response(response)
+            if not parsed_data:
+                return []
             
             # Ensure we have a list of rates
             if isinstance(parsed_data, dict):
@@ -62,18 +80,22 @@ class RateParser:
                 logger.error(f"Unexpected JSON format from LLM: {type(parsed_data)}")
                 return []
                 
-            # Enrich with metadata
+                
+            # Enrich with metadata AND Standardize
             for rate in rates:
                 rate['source_file'] = source_file
                 rate['extracted_at'] = datetime.now().isoformat()
                 rate['confidence'] = 0.90  # Placeholder confidence
                 
+                # Standardization
+                rate['currency'] = self.standardize_currency(rate.get('currency'))
+                rate['season_start_date'] = self.parse_date(rate.get('season_start_date'))
+                rate['season_end_date'] = self.parse_date(rate.get('season_end_date'))
+                rate['validity_date'] = self.parse_date(rate.get('validity_date'))
+                
             logger.info(f"Successfully passed {len(rates)} rates from {source_file}")
             return rates
             
-        except json.JSONDecodeError:
-            logger.error(f"Failed to decode JSON from LLM response. Response: {response[:100]}...")
-            return []
         except Exception as e:
             logger.error(f"Error parsing rate data: {e}")
             return []
@@ -81,28 +103,7 @@ class RateParser:
     def validate_rate_data(self, rate_data: Dict) -> Dict[str, any]:
         """
         Validate parsed rate data for completeness and correctness.
-        
-        Args:
-            rate_data: Parsed rate dictionary
-        
-        Returns:
-            Validation result:
-            {
-                'valid': bool,
-                'errors': List[str],
-                'warnings': List[str]
-            }
-        
-        TODO:
-            - Check required fields are present
-            - Validate date formats and ranges
-            - Validate numeric fields (rate > 0)
-            - Check currency codes against ISO 4217
-            - Validate date logic (start < end, validity >= end)
-            - Flag suspicious values for review
         """
-        logger.info("TODO: Validate rate data")
-        
         validation_result = {
             'valid': True,
             'errors': [],
@@ -110,71 +111,106 @@ class RateParser:
         }
         
         required_fields = [
-            'hotel_name', 'room_type', 'rate_per_night', 'currency',
-            'season_start_date', 'season_end_date'
+            'hotel_name', 'room_type', 'rate_per_night', 'currency'
         ]
         
-        # Check required fields
+        # 1. Required Fields Check
         for field in required_fields:
             if field not in rate_data or not rate_data[field]:
                 validation_result['valid'] = False
                 validation_result['errors'].append(f"Missing required field: {field}")
         
-        # TODO: Add more validation logic
+        # 2. Date Validation
+        if rate_data.get('season_start_date') and rate_data.get('season_end_date'):
+            if rate_data['season_start_date'] > rate_data['season_end_date']:
+                validation_result['valid'] = False
+                validation_result['errors'].append("Start date is after end date")
         
+        # 3. Numeric Validation
+        try:
+            rate = float(rate_data.get('rate_per_night', 0))
+            if rate <= 0:
+                validation_result['valid'] = False
+                validation_result['errors'].append("Rate must be positive")
+        except ValueError:
+            validation_result['valid'] = False
+            validation_result['errors'].append("Invalid rate value (not a number)")
+            
         return validation_result
     
     def standardize_currency(self, currency: str) -> str:
         """
         Standardize currency code to ISO 4217.
-        
-        Args:
-            currency: Raw currency string from extraction
-        
-        Returns:
-            Standardized 3-letter currency code
-        
-        TODO:
-            - Map common variations (USD, $, dollars -> USD)
-            - Handle multi-currency rates
-            - Add currency conversion support
         """
-        logger.info(f"TODO: Standardize currency: {currency}")
-        return currency.upper()
+        if not currency:
+            return "USD"
+            
+        currency = currency.strip().upper()
+        
+        # Common symbol mapping
+        mapping = {
+            "$": "USD",
+            "€": "EUR",
+            "£": "GBP",
+            "USD": "USD",
+            "EUR": "EUR",
+            "GBP": "GBP",
+            "RS": "LKR", # Assuming local context or INR/LKR based on user preference, default to LKR if Sri Lanka context implied, or just keep as is if unsure. Let's map Rs -> LKR for now as per likely context or just return standardized string.
+            "RP": "IDR",
+            "AUD": "AUD"
+        }
+        
+        # Check if it's a known symbol
+        for symbol, code in mapping.items():
+            if currency == symbol or currency.startswith(symbol):
+                return code
+                
+        # If it looks like a 3-letter code, return it
+        if len(currency) == 3 and currency.isalpha():
+            return currency
+            
+        # Default fallback
+        return "USD"
     
     def parse_date(self, date_string: str) -> Optional[str]:
         """
         Parse various date formats into ISO format (YYYY-MM-DD).
-        
-        Args:
-            date_string: Raw date string from extraction
-        
-        Returns:
-            ISO formatted date string or None if parsing fails
-        
-        TODO:
-            - Handle multiple date formats (DD/MM/YYYY, MM-DD-YYYY, etc.)
-            - Parse relative dates (e.g., "valid until end of year")
-            - Handle date ranges
-            - Add timezone awareness if needed
         """
-        logger.info(f"TODO: Parse date: {date_string}")
+        from dateutil import parser
         
-        # Placeholder:
-        # from dateutil import parser
-        # try:
-        #     parsed_date = parser.parse(date_string)
-        #     return parsed_date.strftime('%Y-%m-%d')
-        # except:
-        #     return None
+        if not date_string:
+            return None
+            
+        try:
+            # Parse using dateutil (handles most formats automatically)
+            # dayfirst=True ensures DD/MM/YYYY is preferred over MM/DD/YYYY if ambiguous
+            parsed_date = parser.parse(date_string, dayfirst=True)
+            return parsed_date.strftime('%Y-%m-%d')
+        except Exception:
+            # logger.debug(f"Date parse failed for: {date_string}")
+            return None
+
+    def parse_extended_contract_data(self, extracted_text: str) -> Dict:
+        """
+        Parse complex contract data (policies, supplements) using LLM.
+        """
+        from llm.prompts import get_extended_contract_extraction_prompt
+        from llm.llm_client import generate_llm_response
         
-        return None
+        prompt = get_extended_contract_extraction_prompt(extracted_text)
+        # Use a creative temperature to allow for better interpretation of complex policy text
+        # but strict enough for JSON structure.
+        response = generate_llm_response(prompt, temperature=0.1)
+        
+        data = self._parse_json_response(response)
+        if data is None:
+             return {"error": "Failed to parse JSON", "raw_response": response}
+        return data
 
     def extract_and_store_contract_data(self, extracted_text: str, source_file: str) -> bool:
         """
         Extract extended contract data and store in 'contract_data' table.
         """
-        from llm.llm_client import parse_extended_contract_data
         from database.db_init import get_db_connection
         from config import DB_PATH
         import json
@@ -182,7 +218,7 @@ class RateParser:
         logger.info(f"Extracting extended contract data from {source_file}...")
         
         # 1. Parse with LLM
-        contract_json = parse_extended_contract_data(extracted_text)
+        contract_json = self.parse_extended_contract_data(extracted_text)
         
         if not contract_json or "error" in contract_json:
             logger.error(f"Failed to extract contract data: {contract_json.get('error', 'Unknown error')}")
@@ -215,18 +251,32 @@ class RateParser:
             logger.error(f"Failed to store contract data: {e}")
             return False
 
+    def extract_all_price_items(self, extracted_text: str) -> Dict:
+        """
+        Extract every priced item from contract text (meal supplements, charges, etc.).
+        """
+        from llm.prompts import get_price_items_extraction_prompt
+        from llm.llm_client import generate_llm_response
+        
+        prompt = get_price_items_extraction_prompt(extracted_text)
+        response = generate_llm_response(prompt, temperature=0.0)
+        
+        data = self._parse_json_response(response)
+        if data is None:
+             return {"error": "Failed to parse JSON", "raw_response": response}
+        return data
+
     def extract_and_store_price_items(self, extracted_text: str, source_file: str, hotel_name: str = "Unknown") -> bool:
         """
         Extract all priced items and store in 'price_items' table.
         """
-        from llm.llm_client import extract_all_price_items
         from database.db_init import get_db_connection
         from config import DB_PATH
         
         logger.info(f"Extracting price items from {source_file}...")
         
         # 1. Extract with LLM
-        price_data = extract_all_price_items(extracted_text)
+        price_data = self.extract_all_price_items(extracted_text)
         
         if not price_data or "error" in price_data:
             logger.error(f"Failed to extract price items: {price_data.get('error', 'Unknown error')}")

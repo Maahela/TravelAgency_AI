@@ -3,7 +3,7 @@ Test script for granular price extraction.
 Run this on a contract to see all meal supplements, charges, deductions, etc.
 """
 from extractor.pdf_text_extractor import PDFTextExtractor
-from llm.llm_client import extract_all_price_items
+
 from config import ATTACHMENTS_DIR
 import os
 import json

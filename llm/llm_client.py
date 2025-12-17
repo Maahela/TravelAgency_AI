@@ -76,91 +76,13 @@ def generate_llm_response(
         return "Error: API key missing."
 
 
-def parse_rate_with_llm(extracted_text: str) -> Dict:
-    """
-    Parse hotel rate information from extracted text using LLM.
-    
-    Args:
-        extracted_text: Raw text extracted from PDF/image
-    
-    Returns:
-        Structured rate data dictionary
-    
-    TODO:
-        - Load rate parsing prompt template
-        - Use structured output (JSON mode)
-        - Validate LLM response format
-        - Handle partial/incomplete extractions
-        - Add confidence scoring based on LLM output
-    """
-    from llm.prompts import get_rate_parsing_prompt
-    
-    logger.info("TODO: Parse rate data with LLM")
-    
-    # system_message = "You are an expert at extracting structured hotel rate information from text."
-    # prompt = get_rate_parsing_prompt(extracted_text)
-    # 
-    # response = generate_llm_response(prompt, system_message, temperature=0.0)
-    # 
-    # # Parse JSON response
-    # import json
-    # rate_data = json.loads(response)
-    
-    rate_data = {}
-    
-    return rate_data
 
 
-def parse_extended_contract_data(extracted_text: str) -> Dict:
-    """
-    Parse complex contract data (policies, supplements) using LLM.
-    """
-    from llm.prompts import get_extended_contract_extraction_prompt
-    import json
-    
-    prompt = get_extended_contract_extraction_prompt(extracted_text)
-    # Use a creative temperature to allow for better interpretation of complex policy text
-    # but strict enough for JSON structure.
-    response = generate_llm_response(prompt, temperature=0.1)
-    
-    try:
-        # Clean response
-        clean_json = response.strip()
-        if clean_json.startswith("```json"):
-            clean_json = clean_json.split("```json")[1].split("```")[0]
-        elif clean_json.startswith("```"):
-             clean_json = clean_json.split("```")[1].split("```")[0]
-             
-        data = json.loads(clean_json)
-        return data
-    except Exception as e:
-        logger.error(f"Failed to parse extended contract JSON: {e}")
-        return {"error": str(e), "raw_response": response}
 
 
-def extract_all_price_items(extracted_text: str) -> Dict:
-    """
-    Extract every priced item from contract text (meal supplements, charges, etc.).
-    """
-    from llm.prompts import get_price_items_extraction_prompt
-    import json
-    
-    prompt = get_price_items_extraction_prompt(extracted_text)
-    response = generate_llm_response(prompt, temperature=0.0)
-    
-    try:
-        # Clean response
-        clean_json = response.strip()
-        if clean_json.startswith("```json"):
-            clean_json = clean_json.split("```json")[1].split("```")[0]
-        elif clean_json.startswith("```"):
-             clean_json = clean_json.split("```")[1].split("```")[0]
-             
-        data = json.loads(clean_json)
-        return data
-    except Exception as e:
-        logger.error(f"Failed to parse price items JSON: {e}")
-        return {"error": str(e), "raw_response": response}
+
+
+
 
 
 
