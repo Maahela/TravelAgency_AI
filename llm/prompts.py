@@ -19,11 +19,38 @@ Return ONLY valid JSON."""
 
 def get_email_generation_prompt(email_type: str, context: Dict) -> str:
     """Generate prompt for creating email content."""
+    
+    base_instructions = """
+    You are a professional travel agency assistant. Write a polite, professional email based on the context provided.
+    
+    OUTPUT FORMAT (JSON ONLY):
+    {
+        "subject": "Clear, professional subject line",
+        "body": "The email body in HTML format. Use <p>, <br>, <ul>, <li> tags for formatting. Do NOT use markdown in the body."
+    }
+    """
+    
     if email_type == 'rate_request':
-        return f"""Write professional hotel rate request email.
-Hotel: {context.get('hotel_name', '[Hotel Name]')}
-Return JSON with 'subject' and 'body' keys."""
-    return f"Generate email type '{email_type}' with context: {context}"
+        specifics = f"""
+        TASK: Write a Rate Request email to a hotel.
+        Target Hotel: {context.get('hotel_name', '[Hotel Name]')}
+        Specific Request: {context.get('request_details', 'General contract rates for the upcoming season')}
+        
+        Keep it concise but polite. Mention that we are updating our database for the upcoming season.
+        """
+    elif email_type == 'client_quote':
+        specifics = f"""
+        TASK: Write a Quote email to a client.
+        Client Name: {context.get('client_name', 'Valued Client')}
+        Hotel: {context.get('hotel_name')}
+        Rates to Quote: {context.get('rate_data')}
+        
+        Present the rates clearly (you can use an HTML table if multiple options).
+        """
+    else:
+        specifics = f"TASK: Write a generic email of type '{email_type}' with context: {context}"
+        
+    return f"{base_instructions}\n\n{specifics}\n\nReturn ONLY valid JSON."
 
 
 def get_query_answering_prompt(query: str, context: str) -> str:

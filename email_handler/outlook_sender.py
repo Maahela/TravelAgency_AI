@@ -57,12 +57,62 @@ class OutlookSender:
             - Support inline images
             - Add template support for common email types
         """
-        logger.info(f"TODO: Create draft email to {to_recipients} with subject '{subject}'")
+        import requests
         
-        # Placeholder for draft creation
-        draft_id = None
+        if not self.access_token:
+            logger.error("Cannot create draft: No access token provided")
+            return None
+            
+        endpoint = "https://graph.microsoft.com/v1.0/me/messages"
+        headers = {
+            'Authorization': f'Bearer {self.access_token}',
+            'Content-Type': 'application/json'
+        }
         
-        return draft_id
+        # Construct recipients list
+        to_list = [{'emailAddress': {'address': addr}} for addr in to_recipients]
+        cc_list = [{'emailAddress': {'address': addr}} for addr in (cc_recipients or [])]
+        
+        email_msg = {
+            'subject': subject,
+            'body': {
+                'contentType': 'HTML',
+                'content': body
+            },
+            'toRecipients': to_list,
+            'ccRecipients': cc_list
+        }
+        
+        # Add attachments if any
+        if attachments:
+            # Graph API requires attachments to be base64 encoded strings
+            # Assuming 'attachments' is list of {name: str, content_bytes: bytes}
+            import base64
+            atts_payload = []
+            for att in attachments:
+                b64_content = base64.b64encode(att['content_bytes']).decode('utf-8')
+                atts_payload.append({
+                    '@odata.type': '#microsoft.graph.fileAttachment',
+                    'name': att['name'],
+                    'contentBytes': b64_content
+                })
+            email_msg['attachments'] = atts_payload
+            
+        try:
+            logger.info(f"Creating draft email to {to_recipients}...")
+            response = requests.post(endpoint, headers=headers, json=email_msg)
+            response.raise_for_status()
+            
+            result = response.json()
+            draft_id = result.get('id')
+            logger.info(f"Draft created successfully. ID: {draft_id}")
+            return draft_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create draft email: {e}")
+            if 'response' in locals():
+                logger.error(f"Response: {response.text}")
+            return None
     
     def send_email(
         self,
@@ -119,22 +169,17 @@ class OutlookSender:
             - Support multiple languages
             - Include agency branding/signature
         """
-        logger.info(f"TODO: Generate rate request email for {hotel_name}")
+        from llm.llm_client import generate_email_with_llm
         
-        subject = f"Rate Request - {hotel_name}"
-        body = """
-        Dear {hotel_name} Team,
+        logger.info(f"Generating rate request content for {hotel_name}...")
         
-        [TODO: Add professional rate request template]
-        
-        Best regards,
-        [Your Agency Name]
-        """
-        
-        return {
-            'subject': subject,
-            'body': body
+        context = {
+            'hotel_name': hotel_name,
+            'target_email': hotel_email,
+            'request_details': requested_details
         }
+        
+        return generate_email_with_llm('rate_request', context)
     
     def generate_client_quote_email(
         self,

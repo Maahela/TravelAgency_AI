@@ -108,18 +108,40 @@ def generate_email_with_llm(
         - Add agency branding/signature
     """
     from llm.prompts import get_email_generation_prompt
+    import json
     
-    logger.info(f"TODO: Generate {email_type} email with LLM")
+    logger.info(f"Generating {email_type} email with LLM")
     
-    # system_message = "You are a professional travel agency assistant writing emails."
-    # prompt = get_email_generation_prompt(email_type, context)
-    # 
-    # response = generate_llm_response(prompt, system_message, temperature=0.3)
+    prompt = get_email_generation_prompt(email_type, context)
+    # Heat up temperature slightly for creative writing, but keep it low for structure
+    response = generate_llm_response(prompt, temperature=0.2)
     
-    return {
-        'subject': 'TODO: Generate subject',
-        'body': 'TODO: Generate body'
-    }
+    try:
+        # Clean response
+        clean_json = response.strip()
+        if clean_json.startswith("```json"):
+            clean_json = clean_json.split("```json")[1].split("```")[0]
+        elif clean_json.startswith("```"):
+             clean_json = clean_json.split("```")[1].split("```")[0]
+             
+        data = json.loads(clean_json)
+        
+        # Validation
+        if 'subject' not in data or 'body' not in data:
+            logger.error("LLM email generation missing subject or body")
+            return {
+                'subject': f"Draft: {email_type} (Generation Failed)",
+                'body': f"<p>Error generating email. Raw output:</p><pre>{response}</pre>"
+            }
+            
+        return data
+        
+    except Exception as e:
+        logger.error(f"Failed to generate email JSON: {e}")
+        return {
+            'subject': f"Draft: {email_type} (Error)",
+            'body': f"<p>Error parsing LLM response: {e}</p>"
+        }
 
 
 def answer_query_with_llm(query: str, context: str) -> str:
