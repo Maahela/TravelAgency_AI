@@ -53,6 +53,27 @@ def get_email_generation_prompt(email_type: str, context: Dict) -> str:
     return f"{base_instructions}\n\n{specifics}\n\nReturn ONLY valid JSON."
 
 
+def get_contact_extraction_prompt(search_results: str) -> str:
+    """Generate prompt for extracting contact info from search snippets."""
+    return f"""Analyze these search results for a hotel to find contact details.
+    
+    SEARCH RESULTS:
+    {search_results}
+    
+    TASK: Extract valid email addresses and the official website.
+    - Prioritize 'reservations@', 'info@', 'booking@' emails.
+    - Ignore generic OTA emails (booking.com, expedia, etc.).
+    - Output format (JSON):
+    {{
+        "email": "string or null",
+        "website": "string or null",
+        "phone": "string or null",
+        "confidence": "high/medium/low"
+    }}
+    
+    Return ONLY valid JSON."""
+
+
 def get_query_answering_prompt(query: str, context: str) -> str:
     """Generate prompt for answering queries."""
     return f"""Answer based ONLY on provided rate information.

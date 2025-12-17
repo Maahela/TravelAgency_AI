@@ -113,6 +113,27 @@ def initialize_database(db_path: Path) -> bool:
             )
         """)
         
+        # Create hotels table (for rate refresh automation)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS hotels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email_address TEXT,
+                website TEXT,
+                last_rate_request_date TEXT,
+                contact_person TEXT,
+                phone_number TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Index on hotel name for lookups
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_hotels_name 
+            ON hotels(name)
+        """)
+        
         conn.commit()
         conn.close()
         

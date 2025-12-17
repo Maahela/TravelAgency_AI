@@ -183,3 +183,27 @@ def extract_search_params_with_llm(query: str) -> Dict:
     except Exception as e:
         logger.error(f"Failed to parse search params JSON: {e}")
         return {}
+
+
+def extract_contact_info_with_llm(search_snippets: str) -> Dict:
+    """
+    Extract hotel contact info from search result snippets using LLM.
+    """
+    from llm.prompts import get_contact_extraction_prompt
+    import json
+    
+    prompt = get_contact_extraction_prompt(search_snippets)
+    response = generate_llm_response(prompt, temperature=0.0)
+    
+    try:
+        clean_json = response.strip()
+        if clean_json.startswith("```json"):
+            clean_json = clean_json.split("```json")[1].split("```")[0]
+        elif clean_json.startswith("```"):
+             clean_json = clean_json.split("```")[1].split("```")[0]
+             
+        data = json.loads(clean_json)
+        return data
+    except Exception as e:
+        logger.error(f"Failed to parse contact info JSON: {e}")
+        return {}
