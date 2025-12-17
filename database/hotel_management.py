@@ -101,21 +101,48 @@ class HotelManager:
         finally:
             conn.close()
 
-    def get_or_create_hotel(self, name: str) -> int:
-        """Find hotel by name logic, or create if missing."""
+    def get_or_create_hotel(self, name: str, website: str = None) -> int:
+        """
+        Get hotel ID by name, creating if necessary. Optionally update website.
+        """
         conn = self._get_conn()
         cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT id FROM hotels WHERE name = ?", (name,))
-            row = cursor.fetchone()
-            if row:
-                return row[0]
+        
+        # Try to find existing
+        cursor.execute("SELECT id, website FROM hotels WHERE name = ?", (name,))
+        row = cursor.fetchone()
+        
+        if row:
+            hotel_id = row[0]
+            existing_website = row[1]
             
-            cursor.execute("INSERT INTO hotels (name) VALUES (?)", (name,))
-            conn.commit()
-            return cursor.lastrowid
-        finally:
+            # Update website if provided and different
+            if website and website != existing_website:
+                cursor.execute(
+                    "UPDATE hotels SET website = ? WHERE id = ?",
+                    (website, hotel_id)
+                )
+                conn.commit()
+                logger.info(f"Updated website for hotel '{name}': {website}")
+            
             conn.close()
+            return hotel_id
+        
+        # Create new
+        if website:
+            cursor.execute(
+                "INSERT INTO hotels (name, website) VALUES (?, ?)",
+                (name, website)
+            )
+        else:
+            cursor.execute("INSERT INTO hotels (name) VALUES (?)", (name,))
+        
+        hotel_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Created hotel '{name}' with ID {hotel_id}")
+        return hotel_id
 
     def upsert_hotel_email(self, hotel_id: int, email: str, purpose: str, source_type: str, confidence: float):
         """Insert or Update email record for a hotel."""

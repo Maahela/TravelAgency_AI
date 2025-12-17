@@ -44,9 +44,14 @@ class ChatInterface:
         """
         logger.info(f"Processing query: {user_query}")
         
+        # Check if this is a save email command
+        query_lower = user_query.lower()
+        if 'save email' in query_lower or 'add email' in query_lower:
+            logger.info(f"Processing query: {user_query}")
+            return self._handle_save_email(user_query)
+        
         # Check if this is a discovery request
         # Look for email/contact-related keywords
-        query_lower = user_query.lower()
         is_discovery = (
             ('email' in query_lower and any(word in query_lower for word in ['find', 'get', 'search', 'discover'])) or
             ('contact' in query_lower and any(word in query_lower for word in ['find', 'get', 'search', 'discover'])) or
@@ -153,6 +158,99 @@ class ChatInterface:
         else:
             return f"No email addresses found for {hotel_name}. The search completed but no contact emails were discovered."
     
+    def _handle_save_email(self, user_query: str) -> str:
+        """
+        Handle manual email save commands.
+        Example: "save email reservations@hotel.com for Galle Face Hotel"
+        """
+        from database.hotel_management import HotelManager
+        
+        # Extract email and hotel name
+        # Pattern: save/add email <email> for <hotel>
+        pattern = r'(?:save|add)\s+email\s+([\w._%+-]+@[\w.-]+\.[a-zA-Z]{2,})\s+(?:for|to)\s+(.+?)(?:\?|$)'
+        match = re.search(pattern, user_query, re.IGNORECASE)
+        
+        if not match:
+            return "Please use format: 'save email address@hotel.com for Hotel Name'"
+        
+        email = match.group(1).strip()
+        hotel_name = match.group(2).strip()
+        
+        # Ask for purpose (or extract from query if mentioned)
+        purpose = "general"
+        if 'reservation' in user_query.lower():
+            purpose = "reservations"
+        elif 'sales' in user_query.lower():
+            purpose = "sales"
+        
+        # Save to database
+        manager = HotelManager()
+        hotel_id = manager.get_or_create_hotel(hotel_name)
+        
+        email_data = {
+            "email": email,
+            "purpose": purpose,
+            "confidence": 1.0,
+            "reasoning": "Manually added via chat"
+        }
+        
+        
+        manager.upsert_hotel_email(
+            hotel_id=hotel_id,
+            email=email,
+            purpose=purpose,
+            source_type="manual",
+            confidence=1.0
+        )
+        
+        return f"✅ Saved {email} for {hotel_name} (purpose: {purpose})"
+    
+    def _handle_save_email(self, user_query: str) -> str:
+        """
+        Handle manual email save commands.
+        Example: "save email reservations@hotel.com for Galle Face Hotel"
+        """
+        import re
+        from database.hotel_management import HotelManager
+        
+        # Extract email and hotel name
+        # Pattern: save/add email <email> for <hotel>
+        pattern = r'(?:save|add)\s+email\s+([\w._%+-]+@[\w.-]+\.[a-zA-Z]{2,})\s+(?:for|to)\s+(.+?)(?:\?|$)'
+        match = re.search(pattern, user_query, re.IGNORECASE)
+        
+        if not match:
+            return "Please use format: 'save email address@hotel.com for Hotel Name'"
+        
+        email = match.group(1).strip()
+        hotel_name = match.group(2).strip()
+        
+        # Ask for purpose (or extract from query if mentioned)
+        purpose = "general"
+        if 'reservation' in user_query.lower():
+            purpose = "reservations"
+        elif 'sales' in user_query.lower():
+            purpose = "sales"
+        
+        # Save to database
+        manager = HotelManager()
+        hotel_id = manager.get_or_create_hotel(hotel_name)
+        
+        email_data = {
+            "email": email,
+            "purpose": purpose,
+            "confidence": 1.0,
+            "reasoning": "Manually added via chat"
+        }
+        
+        manager.upsert_hotel_email(
+            hotel_id=hotel_id,
+            email=email,
+            purpose=purpose,
+            source_type="manual",
+            confidence=1.0
+        )
+        
+        return f"✅ Saved {email} for {hotel_name} (purpose: {purpose})"
     
     def run_cli(self):
         """

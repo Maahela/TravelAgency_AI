@@ -117,15 +117,15 @@ def initialize_database(db_path: Path) -> bool:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS hotels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email_address TEXT,
+                name TEXT NOT NULL UNIQUE,
                 website TEXT,
                 last_rate_request_date TEXT,
                 last_discovery_run_at TEXT,
                 contact_person TEXT,
                 phone_number TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_rate_refresh_at TIMESTAMP
             )
         """)
         
