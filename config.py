@@ -47,6 +47,10 @@ while True:
 if not GOOGLE_API_KEYS and os.getenv("GOOGLE_API_KEY"):
     GOOGLE_API_KEYS.append(os.getenv("GOOGLE_API_KEY"))
 
+# Google Custom Search Configuration
+GOOGLE_SEARCH_API_KEY = os.getenv("GOOGLE_SEARCH_API_KEY")
+GOOGLE_SEARCH_CX = os.getenv("GOOGLE_SEARCH_CX")
+
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
 
 # OCR Configuration

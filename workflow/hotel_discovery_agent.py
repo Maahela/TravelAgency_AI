@@ -4,28 +4,35 @@ Orchestrates finding, validating, and updating hotel email addresses.
 """
 import json
 from typing import List, Dict, Optional
-from duckduckgo_search import DDGS
+from googleapiclient.discovery import build
 from llm.llm_client import generate_llm_response
 from llm.prompts_discovery import get_discovery_agent_prompt
 from database.hotel_management import HotelManager
 from utils.logger import get_logger
+from config import GOOGLE_SEARCH_API_KEY, GOOGLE_SEARCH_CX
 
 logger = get_logger(__name__)
 
 class HotelDiscoveryAgent:
     def __init__(self):
         self.hotel_manager = HotelManager()
+        self.search_service = None
+        if GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX:
+            try:
+                self.search_service = build("customsearch", "v1", developerKey=GOOGLE_SEARCH_API_KEY)
+            except Exception as e:
+                logger.error(f"Failed to init Google Search: {e}")
 
     def run(self, hotel_name: str, city: str = "", country: str = "") -> Dict:
         """
         Execute the discovery pipeline for a single hotel.
         """
-        logger.info(f"🕵️‍♂️ Starting Discovery Agent for: {hotel_name}")
+        logger.info(f"Starting Discovery Agent for: {hotel_name}")
         
         # Step 1: Source Discovery (Search)
         sources = self._discover_sources(hotel_name, city, country)
         if not any(sources.values()):
-            logger.warning(f"❌ No credible sources found for {hotel_name}")
+            logger.warning(f"No credible sources found for {hotel_name}")
             return {
                 "hotel_name": hotel_name,
                 "sources": sources,
@@ -77,6 +84,7 @@ class HotelDiscoveryAgent:
             "hotel_name": hotel_name,
             "sources": {k: "Found" if v else "Not Found" for k, v in sources.items()}, # summary
             "emails": saved_emails,
+            "blocked_urls": self.blocked_urls if hasattr(self, 'blocked_urls') else [],
             "run_status": "success",
             "manual_review_required": len(saved_emails) == 0
         }
@@ -92,49 +100,190 @@ class HotelDiscoveryAgent:
         }
         
         # 1. Official Site Search
-        query = f"{name} {city} {country} official hotel site contact"
-        sources["official_website"] = self._search(query, limit=3)
-        
-        # 2. LinkedIn / Facebook (Social helps for emails) - Mapping "google_maps" to broad "business listing"
-        # The user requested GMap, but via text search we mostly get directories. 
-        # We'll treat general web results as potential business listings.
+        # Detailed query with location to anchor results
+        query = f"{name} {city} {country} official website contact email"
+        # Increase limit since we have 100 queries/day and want high quality
+        sources["official_website"] = self._search(query, limit=5)
         
         return sources
 
-    def _search(self, query: str, limit=3) -> str:
+    def _search(self, query: str, limit=5) -> str:
+        """
+        Search and scrape actual contact pages for email addresses.
+        """
+        if not self.search_service:
+            logger.error("Google Search Service not initialized")
+            return ""
+            
         try:
-            with DDGS() as ddgs:
-                # region='wt-wt' for global
-                results = list(ddgs.text(query, region="wt-wt", max_results=limit))
-                if not results:
-                    return ""
+            # Step 1: Get search results from Google
+            res = self.search_service.cse().list(
+                q=query,
+                cx=GOOGLE_SEARCH_CX,
+                num=limit
+            ).execute()
+            
+            items = res.get("items", [])
+            if not items:
+                return ""
+            
+            # Step 2: Scrape the actual pages
+            scraped_content = ""
+            
+            for item in items:
+                url = item.get("link", "")
+                title = item.get("title", "")
                 
-                # Concatenate title + snippet (we don't scrape full HTML yet, just snippets)
-                text = ""
-                for r in results:
-                    text += f"Title: {r['title']}\nSnippet: {r['body']}\nURL: {r['href']}\n\n"
-                return text
+                # Skip PDFs and other non-HTML content
+                if url.lower().endswith('.pdf'):
+                    logger.info(f"Skipping PDF: {url}")
+                    continue
+                
+                logger.info(f"Scraping: {title}")
+                page_text = self._scrape_page(url)
+                
+                if page_text:
+                    scraped_content += f"Source: {title}\nURL: {url}\nContent:\n{page_text}\n\n---\n\n"
+            
+            return scraped_content if scraped_content else ""
+            
         except Exception as e:
-            logger.error(f"Search error for '{query}': {e}")
+            logger.error(f"Google Search error for '{query}': {e}")
+            return ""
+
+    def _scrape_page(self, url: str, max_length: int = 5000) -> str:
+        """
+        Scrape a web page and extract text content, prioritizing contact sections.
+        """
+        try:
+            import requests
+            from bs4 import BeautifulSoup
+            
+            # Try multiple User-Agents if first one fails
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+                'Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0'
+            ]
+            
+            response = None
+            for ua in user_agents:
+                try:
+                    headers = {'User-Agent': ua}
+                    response = requests.get(url, headers=headers, timeout=10)
+                    response.raise_for_status()
+                    break  # Success, exit loop
+                except requests.exceptions.HTTPError as e:
+                    if e.response.status_code == 403 and ua != user_agents[-1]:
+                        logger.info(f"403 with {ua[:30]}..., trying next")
+                        continue
+                    else:
+                        raise
+            
+            if not response:
+                return ""
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Remove script and style elements
+            for script in soup(["script", "style", "nav", "header", "footer"]):
+                script.decompose()
+            
+            # Try to find contact-specific sections first
+            contact_keywords = ['contact', 'email', 'reservation', 'enquir', 'reach us', 'get in touch']
+            contact_sections = []
+            
+            for keyword in contact_keywords:
+                # Look for sections with contact-related IDs or classes
+                sections = soup.find_all(['div', 'section', 'article'], 
+                                        class_=lambda x: x and keyword in x.lower() if x else False)
+                sections += soup.find_all(['div', 'section', 'article'],
+                                         id=lambda x: x and keyword in x.lower() if x else False)
+                contact_sections.extend(sections)
+            
+            # If we found contact sections, extract from those first
+            if contact_sections:
+                text = " ".join([section.get_text(separator=' ', strip=True) for section in contact_sections[:3]])
+            else:
+                # Fall back to general page text
+                text = soup.get_text(separator=' ', strip=True)
+            
+            # Limit length to avoid overwhelming the LLM
+            if len(text) > max_length:
+                text = text[:max_length] + "..."
+            
+            return text
+            
+        except Exception as e:
+            logger.warning(f"Failed to scrape {url}: {e}")
             return ""
 
     def _extract_emails_with_llm(self, source_type: str, text: str) -> List[Dict]:
-        prompt = get_discovery_agent_prompt(source_type, text)
-        response = generate_llm_response(prompt, temperature=0.0)
+        """
+        Extract emails using regex first, then use LLM to classify them.
+        """
+        import re
         
-        try:
-            # Clean JSON
-            json_str = response.strip()
-            if json_str.startswith("```json"):
-                json_str = json_str.split("```json")[1].split("```")[0]
-            elif json_str.startswith("```"):
-                json_str = json_str.split("```")[1].split("```")[0]
-                
-            data = json.loads(json_str)
-            return data.get("emails", [])
-        except Exception as e:
-            logger.error(f"LLM extraction failed: {e}")
+        # Step 1: Find all email addresses with regex
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        found_emails = re.findall(email_pattern, text)
+        
+        if not found_emails:
+            logger.info(f"No emails found via regex in {source_type}")
             return []
+        
+        # Remove duplicates
+        unique_emails = list(set(found_emails))
+        logger.info(f"Found {len(unique_emails)} unique email(s) via regex: {unique_emails}")
+        
+        # Step 2: Use LLM to classify each email
+        results = []
+        for email in unique_emails:
+            # Create a focused prompt for classification
+            classification_prompt = f"""
+            Classify this hotel contact email address: {email}
+            
+            Determine:
+            1. Purpose: reservations, sales, contracts, general, or unknown
+            2. Confidence (0.0-1.0): How confident are you this is a legitimate business email?
+            3. Reasoning: Brief explanation
+            
+            Rules:
+            - Gmail/Yahoo emails get max 0.6 confidence
+            - Role-based emails (reservations@, sales@) get 0.9+ confidence
+            - Generic emails (info@, contact@) get 0.7-0.8 confidence
+            
+            Return ONLY valid JSON:
+            {{
+              "email": "{email}",
+              "purpose": "...",
+              "confidence": 0.0,
+              "reasoning": "..."
+            }}
+            """
+            
+            response = generate_llm_response(classification_prompt, temperature=0.0)
+            
+            try:
+                json_str = response.strip()
+                if json_str.startswith("```json"):
+                    json_str = json_str.split("```json")[1].split("```")[0]
+                elif json_str.startswith("```"):
+                    json_str = json_str.split("```")[1].split("```")[0]
+                
+                email_data = json.loads(json_str)
+                results.append(email_data)
+            except Exception as e:
+                logger.error(f"Failed to classify email {email}: {e}")
+                # Add with basic classification as fallback
+                results.append({
+                    "email": email,
+                    "purpose": "unknown",
+                    "confidence": 0.5,
+                    "reasoning": "Found via regex but classification failed"
+                })
+        
+        return results
 
     def _save_email_to_db(self, hotel_id: int, email_data: Dict):
         """
