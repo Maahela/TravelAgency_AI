@@ -113,7 +113,7 @@ def initialize_database(db_path: Path) -> bool:
             )
         """)
         
-        # Create hotels table (for rate refresh automation)
+        # Create hotels table (for rate refresh automation) - Updated V2
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS hotels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,10 +121,28 @@ def initialize_database(db_path: Path) -> bool:
                 email_address TEXT,
                 website TEXT,
                 last_rate_request_date TEXT,
+                last_discovery_run_at TEXT,
                 contact_person TEXT,
                 phone_number TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create hotel_emails table (Discovery Agent V2)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS hotel_emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hotel_id INTEGER NOT NULL,
+                email TEXT NOT NULL,
+                purpose TEXT, -- 'reservations', 'sales', 'contracts', 'general', 'unknown'
+                source_type TEXT, -- 'website', 'google_maps', 'ota', 'group_site'
+                confidence_score REAL,
+                is_active BOOLEAN DEFAULT 1,
+                last_verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (hotel_id) REFERENCES hotels (id),
+                UNIQUE(hotel_id, email)
             )
         """)
         

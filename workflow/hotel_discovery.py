@@ -23,7 +23,9 @@ class HotelDiscoveryWorkflow:
             logger.info(f"Searching for contact info: {name}")
             
             # 1. Web Search
-            snippets = self._search_web(f"{name} official site contact email reservations")
+            # Simplified query for better results
+            search_query = f"{name} hotel official contact email"
+            snippets = self._search_web(search_query)
             if not snippets:
                 logger.warning(f"No search results found for {name}")
                 continue
@@ -57,9 +59,12 @@ class HotelDiscoveryWorkflow:
         """Perform web search and return concatenated snippets."""
         try:
             with DDGS() as ddgs:
+                # Use region 'wt-wt' for global results, avoiding local noise
                 # Get top 5 results
-                results = list(ddgs.text(query, max_results=5))
+                results = list(ddgs.text(query, region="wt-wt", max_results=5))
+                
                 if not results:
+                    logger.warning(f"DDGS returned no results for query: {query}")
                     return ""
                 
                 # Format for LLM
@@ -67,6 +72,8 @@ class HotelDiscoveryWorkflow:
                 for i, r in enumerate(results):
                     snippet_text += f"Result {i+1}:\nTitle: {r['title']}\nSnippet: {r['body']}\nURL: {r['href']}\n\n"
                     
+                logger.info(f"DDGS found {len(results)} results")
+                print(f"DEBUG SNIPPETS:\n{snippet_text}")
                 return snippet_text
         except Exception as e:
             logger.error(f"Search failed: {e}")

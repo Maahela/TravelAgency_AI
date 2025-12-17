@@ -9,9 +9,7 @@ def test_discovery():
     
     # Famous hotels (high chance of finding info)
     test_hotels = [
-        "Cinnamon Grand Colombo",
-        "Shangri-La Colombo",
-        "Araliya Green City"
+        "Granbell Hotel Colombo"
     ]
     
     workflow = HotelDiscoveryWorkflow()

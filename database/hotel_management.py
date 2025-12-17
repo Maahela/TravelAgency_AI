@@ -100,3 +100,41 @@ class HotelManager:
             return [dict(row) for row in cursor.fetchall()]
         finally:
             conn.close()
+
+    def get_or_create_hotel(self, name: str) -> int:
+        """Find hotel by name logic, or create if missing."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT id FROM hotels WHERE name = ?", (name,))
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+            
+            cursor.execute("INSERT INTO hotels (name) VALUES (?)", (name,))
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    def upsert_hotel_email(self, hotel_id: int, email: str, purpose: str, source_type: str, confidence: float):
+        """Insert or Update email record for a hotel."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO hotel_emails (hotel_id, email, purpose, source_type, confidence_score, last_verified_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(hotel_id, email) DO UPDATE SET
+                    purpose=excluded.purpose,
+                    source_type=excluded.source_type,
+                    confidence_score=excluded.confidence_score,
+                    last_verified_at=CURRENT_TIMESTAMP,
+                    is_active=1
+            """, (hotel_id, email, purpose, source_type, confidence))
+            conn.commit()
+            logger.info(f"Upserted email {email} for hotel ID {hotel_id}")
+        except sqlite3.Error as e:
+            logger.error(f"Error upserting email: {e}")
+        finally:
+            conn.close()
