@@ -19,8 +19,8 @@ logging.basicConfig(level=logging.WARNING)
 
 def test_scenario():
     print("\n--- Testing User Scenario (Strict Seasonality) ---")
-    # Using year 2028 to force "No Seasonal Rate" error
-    user_query = "2 night  double room from the 23 of january 2028 on elephnats stables .all this is for 4 adults on HB basis"
+    # Using year 2028 to force "No Seasonal Rate" error with correct hotel name
+    user_query = "2 night double room from the 23 of january 2028 on Elephant Stables .all this is for 4 adults on HB basis"
     print(f"Query: {user_query}\n")
     
     # 1. Test Extraction separately to see the JSON
