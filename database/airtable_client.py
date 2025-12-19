@@ -41,8 +41,10 @@ class AirtableClient:
         self.api = Api(self.api_key)
         self.rates_table = self.api.table(self.base_id, "Rates")
         self.hotels_table = self.api.table(self.base_id, "Hotels")
-        self.processing_log_table = self.api.table(self.base_id, "ProcessingLog")
+        self.processing_log_table = self.api.table(self.base_id, "Processing_Logs")
         self.contacts_table = self.api.table(self.base_id, "HotelContacts")
+        self.price_items_table = self.api.table(self.base_id, "Price_Items")
+        self.contract_data_table = self.api.table(self.base_id, "ContractData")
         
         self._initialized = True
         logger.info("AirtableClient initialized successfully")
@@ -99,6 +101,10 @@ class AirtableClient:
                 except:
                     return None
 
+            # Map currency symbols to codes for singleSelect
+            currency = rate_data.get('currency', 'USD')
+            if currency == '$': currency = 'USD'
+
             # Map Python dict keys to Airtable column names
             record = {
                "Hotel Name": rate_data.get('hotel_name'),
@@ -106,7 +112,7 @@ class AirtableClient:
                "Occupancy": rate_data.get('occupancy'),  # New field
                "Meal Plan": rate_data.get('meal_plan'),
                "Price": clean_price(rate_data.get('price', rate_data.get('rate_per_night'))),
-               "Currency": rate_data.get('currency'),
+               "Currency": currency,
                "Season Start": clean_date(rate_data.get('season_start_date')),
                "Season End": clean_date(rate_data.get('season_end_date')),
                "Source File": rate_data.get('source_file'),
@@ -175,3 +181,90 @@ class AirtableClient:
         except Exception as e:
             logger.error(f"Failed to log hotel contact: {e}")
             return False
+
+    def insert_price_item(self, item_data: Dict) -> bool:
+        """
+        Insert a granular price item into Airtable.
+        """
+        if not self.is_connected():
+            return False
+            
+        try:
+            # Map currency symbols to codes for singleSelect
+            currency = item_data.get('currency', 'USD')
+            if currency == '$': currency = 'USD'
+            
+            # Map categories to allowed choices
+            allowed_categories = [
+                "meal_rate", "meal_plan_supplement", "extra_person_charge",
+                "extra_bed_charge", "child_rate", "deduction",
+                "package_price", "upgrade_price", "offer_discount",
+                "cancellation_fee", "policy_fee", "other_charge"
+            ]
+            category = item_data.get('category', 'other_charge')
+            if category not in allowed_categories:
+                category = 'other_charge'
+
+            record = {
+                "Hotel Name": item_data.get('hotel_name'),
+                "Category": category,
+                "Description": item_data.get('description'),
+                "Price": item_data.get('price'),
+                "Currency": currency,
+                "Per Unit": item_data.get('per_unit'),
+                "Adult or Child": item_data.get('adult_or_child'),
+                "Age Range": item_data.get('age_range'),
+                "Applicable Room Types": item_data.get('applicable_room_types'),
+                "Applicable Dates": item_data.get('applicable_dates'),
+                "Meal Type": item_data.get('meal_type'),
+                "Conditions": item_data.get('conditions'),
+                "Source Text": item_data.get('source_text_snippet') or item_data.get('source_text'),
+                "Source File": item_data.get('source_file')
+            }
+            # Stringify everything to avoid field type errors in singleLineText
+            record = {k: str(v) if v is not None else None for k, v in record.items()}
+            # Remove None
+            record = {k: v for k, v in record.items() if v is not None}
+            
+            self.price_items_table.create(record)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to insert price item: {e}")
+            return False
+
+    def insert_contract_data(self, contract: Dict) -> bool:
+        """
+        Insert raw contract JSON data into Airtable.
+        """
+        if not self.is_connected():
+            return False
+            
+        try:
+            record = {
+                "Hotel Name": contract.get('hotel_name'),
+                "Source File": contract.get('source_file'),
+                "Raw JSON": contract.get('raw_json'),
+                "Extracted At": self._clean_date(contract.get('extracted_at'))
+            }
+            # Clean record
+            record = {k: v for k, v in record.items() if v is not None}
+            self.contract_data_table.create(record)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to insert contract data: {e}")
+            return False
+
+    def _clean_date(self, date_str):
+        """Internal helper for date cleaning."""
+        if not date_str: return None
+        from datetime import datetime
+        try:
+            # Handle various formats
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                try:
+                    return datetime.strptime(str(date_str).split('.')[0], fmt).strftime("%Y-%m-%d")
+                except:
+                    continue
+            return None
+        except:
+            return None

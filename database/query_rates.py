@@ -52,7 +52,8 @@ def search_rates(
                 # Example: AND({Hotel Name}="X", {Price}<=Y)
                 formulas = []
                 if hotel_name:
-                    formulas.append(f"{{Hotel Name}}='{hotel_name}'")
+                    # Case-insensitive search in Airtable
+                    formulas.append(f"SEARCH(LOWER('{hotel_name}'), LOWER({{Hotel Name}}))")
                 
                 # Note: Price query in Airtable string field is hard, skipping simple max_rate for now in Airtable
                 # or fetching all for hotel and filtering in python.
@@ -67,7 +68,11 @@ def search_rates(
                     for r in records:
                         f = r['fields']
                         # Apply max_rate filter in python since Price is text/number mixed
-                        price = float(str(f.get('Price', 0)).replace(',', '').replace('USD', '').strip() or 0)
+                        price_str = str(f.get('Price', 0)).replace(',', '').replace('USD', '').replace('LKR', '').strip() or '0'
+                        try:
+                            price = float(price_str)
+                        except:
+                            price = 0
                         
                         if max_rate and price > max_rate:
                             continue
@@ -75,12 +80,13 @@ def search_rates(
                         results.append({
                             'hotel_name': f.get('Hotel Name'),
                             'room_type': f.get('Room Type'),
+                            'occupancy': f.get('Occupancy'), # Added field
                             'rate_per_night': price, # Aligning with SQLite's 'rate_per_night'
                             'currency': f.get('Currency', 'USD'),
                             'meal_plan': f.get('Meal Plan'),
                             'source': 'Airtable',
-                            'season_start_date': f.get('Season Start Date'), # Assuming these fields exist in Airtable
-                            'season_end_date': f.get('Season End Date'),
+                            'season_start_date': f.get('Season Start'),
+                            'season_end_date': f.get('Season End'),
                             'conditions': f.get('Conditions')
                         })
                     return results

@@ -15,14 +15,6 @@ def search_price_items(
 ) -> List[Dict]:
     """
     Search price items table.
-    
-    Args:
-        hotel_name: Filter by hotel name
-        category: Filter by category (meal_rate, extra_bed_charge, etc.)
-        db_path: Path to database
-    
-    Returns:
-        List of matching price items
     """
     if db_path is None:
         from config import DB_PATH
@@ -30,35 +22,75 @@ def search_price_items(
     
     from database.db_init import get_db_connection
     
-    conn = get_db_connection(db_path)
-    cursor = conn.cursor()
+    logger.info(f"Searching price items: hotel={hotel_name}, category={category}")
     
-    # Build query
-    query = "SELECT * FROM price_items WHERE 1=1"
-    params = []
-    
-    if hotel_name:
-        query += " AND LOWER(hotel_name) LIKE LOWER(?)"
-        params.append(f"%{hotel_name}%")
-    
-    if category:
-        query += " AND category = ?"
-        params.append(category)
-    
-    query += " ORDER BY id DESC"
-    
-    cursor.execute(query, params)
-    rows = cursor.fetchall()
-    conn.close()
-    
-    logger.info(f"Found {len(rows)} price items")
-    
-    # Convert to dictionaries
-    results = []
-    for row in rows:
-        results.append(dict(row))
-    
-    return results
+    try:
+        # 1. Try Airtable first
+        from database.airtable_client import AirtableClient
+        try:
+            airtable = AirtableClient()
+            if airtable.is_connected():
+                formulas = []
+                if hotel_name:
+                    formulas.append(f"SEARCH(LOWER('{hotel_name}'), LOWER({{Hotel Name}}))")
+                if category:
+                    formulas.append(f"{{Category}}='{category}'")
+                
+                formula = f"AND({', '.join(formulas)})" if formulas else None
+                records = airtable.price_items_table.all(formula=formula)
+                
+                if records:
+                    logger.info(f"Found {len(records)} price items in Airtable")
+                    results = []
+                    for r in records:
+                        f = r['fields']
+                        results.append({
+                            'hotel_name': f.get('Hotel Name'),
+                            'category': f.get('Category'),
+                            'description': f.get('Description'),
+                            'price': f.get('Price'),
+                            'currency': f.get('Currency'),
+                            'per_unit': f.get('Per Unit'),
+                            'adult_or_child': f.get('Adult or Child'),
+                            'age_range': f.get('Age Range'),
+                            'applicable_room_types': f.get('Applicable Room Types'),
+                            'applicable_dates': f.get('Applicable Dates'),
+                            'meal_type': f.get('Meal Type'),
+                            'conditions': f.get('Conditions'),
+                            'source_text_snippet': f.get('Source Text'),
+                            'source_file': f.get('Source File')
+                        })
+                    return results
+        except Exception as e:
+            logger.warning(f"Airtable price_items query failed: {e}")
+
+        # 2. Fallback to SQLite
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        
+        # Build query
+        query = "SELECT * FROM price_items WHERE 1=1"
+        params = []
+        
+        if hotel_name:
+            query += " AND LOWER(hotel_name) LIKE LOWER(?)"
+            params.append(f"%{hotel_name}%")
+        
+        if category:
+            query += " AND category = ?"
+            params.append(category)
+        
+        query += " ORDER BY id DESC"
+        
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        results = [dict(row) for row in rows]
+        return results
+    except Exception as e:
+        logger.error(f"Failed to search price items: {e}")
+        return []
 
 
 def format_price_items_for_llm(items: List[Dict]) -> str:
