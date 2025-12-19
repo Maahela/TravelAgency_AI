@@ -15,6 +15,7 @@ from extractor.rate_parser import RateParser
 from database.db_init import initialize_database
 from database.insert_rates import insert_rate, log_processing_status
 from config import DB_PATH
+from datetime import datetime
 
 logger = get_logger(__name__)
 
@@ -132,25 +133,99 @@ def process_single_email(
         sender,
         email.get('attachment_count', 0)
     )
+
+    # --- Feature: Auto-Capture Contact ---
+    try:
+        from database.airtable_client import AirtableClient
+        airtable = AirtableClient()
+        if airtable.is_connected():
+             # We use the sender's name if we can infer it, or just use the email as name initially
+             # Ideally we'd extract the name from "From: Name <email>", but 'sender' here is likely just the address
+             # based on outlook_reader implementation. 
+             # Let's check outlook_reader again if 'sender' is address or full string.
+             # Actually, logged as 'sender' is email address.
+             # We can try to guess a hotel name from subject or just leave it as "Unknown (Auto-Captured)"
+             airtable.log_hotel_contact(
+                 hotel_name="Unknown (Auto-Captured)", 
+                 email=sender,
+                 source="Email Manifest",
+                 confidence=1.0
+             )
+             logger.info(f"Auto-captured contact: {sender}")
+    except Exception as e:
+        logger.warning(f"Failed to auto-capture contact: {e}")
+    # -------------------------------------
     
     # Get attachments
     attachments = outlook_reader.get_email_attachments(email_id)
     
-    if not attachments:
-        logger.info("No attachments to process")
-        outlook_reader.mark_as_read(email_id)
-        return
+    # Process attachments if they exist
+    if attachments:
+        logger.info(f"Processing {len(attachments)} attachment(s)")
+        for attachment in attachments:
+            process_attachment(
+                attachment,
+                email_id,
+                pdf_extractor,
+                ocr_extractor,
+                rate_parser,
+                notification_service
+            )
+    else:
+        logger.info("No attachments found")
     
-    # Process each attachment
-    for attachment in attachments:
-        process_attachment(
-            attachment,
-            email_id,
-            pdf_extractor,
-            ocr_extractor,
-            rate_parser,
-            notification_service
-        )
+    # ALSO process email body if it has substantial text
+    body = email.get('body', '').strip()
+    if body and len(body) > 50:  # Minimum threshold
+        logger.info(f"Processing email body text ({len(body)} chars)")
+        try:
+            # Parse rates from body text directly
+            rates = rate_parser.parse_rate_data(body, f"EmailBody_{subject[:30]}")
+            
+            if rates:
+                from database.insert_rates import insert_rate
+                from config import DB_PATH
+                
+                success_count = 0
+                for rate in rates:
+                    # Add metadata
+                    rate['extracted_at'] = datetime.now().isoformat()
+                    rate['confidence'] = 0.85  # Slightly lower than attachment-based
+                    
+                    # Validate
+                    validation = rate_parser.validate_rate_data(rate)
+                    if validation['valid']:
+                        if insert_rate(rate, DB_PATH):
+                            success_count += 1
+                    else:
+                        logger.warning(f"Invalid rate from body: {validation['errors']}")
+                
+                logger.info(f"Inserted {success_count}/{len(rates)} rates from email body")
+                
+                # ALSO extract price items and contract data from body
+                hotel_name = rates[0].get('hotel_name', 'Unknown') if rates else 'Unknown'
+                
+                try:
+                    rate_parser.extract_and_store_price_items(
+                        body, 
+                        f"EmailBody_{subject[:30]}", 
+                        hotel_name
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to extract price items from body: {e}")
+                
+                try:
+                    rate_parser.extract_and_store_contract_data(
+                        body,
+                        f"EmailBody_{subject[:30]}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to extract contract data from body: {e}")
+                    
+            else:
+                logger.info("No rates found in email body")
+        except Exception as e:
+            logger.error(f"Failed to process email body: {e}")
     
     # Mark email as processed
     outlook_reader.mark_as_read(email_id)
@@ -231,6 +306,20 @@ def process_attachment(
                     'Validation failed',
                     {'filename': filename, 'errors': validation['errors']}
                 )
+        
+        # --- Deep Extraction (Contract Data & granular Price Items) ---
+        if rates:
+             # Use the hotel name from the first valid rate as the context
+            primary_hotel_name = rates[0].get('hotel_name', 'Unknown')
+            
+            # 1. Extract Extended Contract Data (Policies, Rules)
+            logger.info("Triggering deep contract data extraction...")
+            rate_parser.extract_and_store_contract_data(extracted_text, filename)
+            
+            # 2. Extract Granular Price Items (Meal supplements, gala dinners, etc.)
+            logger.info("Triggering granular price item extraction...")
+            rate_parser.extract_and_store_price_items(extracted_text, filename, primary_hotel_name)
+        # ----------------------------------------------------------------
         
         # Log success
         log_processing_status(email_id, filename, 'success')

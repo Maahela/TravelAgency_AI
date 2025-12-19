@@ -51,25 +51,23 @@ def create_schema():
             {"name": "Email", "type": "singleLineText"},
             {"name": "Discovery Source", "type": "singleLineText"},
             {"name": "Confidence", "type": "number", "options": {"precision": 2}},
-            {"name": "Last Updated", "type": "lastModifiedTime", "options": {}}
         ]
     }
 
     # 3. ProcessingLog Schema
     log_schema = {
-        "name": "ProcessingLog",
+        "name": "Processing_Logs",
         "fields": [
             {"name": "Email ID", "type": "singleLineText"},
             {"name": "Filename", "type": "singleLineText"},
             {"name": "Status", "type": "singleLineText"},
             {"name": "Error Message", "type": "multilineText"},
-            {"name": "Timestamp", "type": "createdTime", "options": {}}
         ]
     }
 
     # 4. PriceItems Schema
     price_items_schema = {
-        "name": "PriceItems",
+        "name": "Price_Items",
         "fields": [
             {"name": "Hotel Name", "type": "singleLineText"},
             {"name": "Category", "type": "singleLineText"},

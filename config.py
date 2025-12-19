@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Base directories
-BASE_DIR = Path(__file__).parent
+# Base directories - use absolute paths to prevent issues when running from subdirectories
+BASE_DIR = Path(os.path.realpath(__file__)).parent
 DATA_DIR = BASE_DIR / "data"
 LOGS_DIR = BASE_DIR / "logs"
 ATTACHMENTS_DIR = Path(os.getenv("ATTACHMENTS_DIR", "./data/attachments"))
@@ -59,7 +59,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
 TESSERACT_PATH = os.getenv("TESSERACT_PATH", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 
 # Database Configuration
-DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "rates.db")))
+DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "rates.db"))).resolve()
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME", "rates")

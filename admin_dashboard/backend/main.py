@@ -33,6 +33,11 @@ app.add_middleware(
 # Initialize Chat Interface
 chat_bot = ChatInterface()
 
+# Log DB path for debugging
+from config import DB_PATH
+logger.info(f"Backend using DB_PATH: {DB_PATH}")
+logger.info(f"DB exists: {DB_PATH.exists()}")
+
 class QueryRequest(BaseModel):
     message: str
 
@@ -46,6 +51,27 @@ class RateUpdate(BaseModel):
 @app.get("/")
 async def root():
     return {"status": "online", "message": "JAKEmailBot Admin API is running"}
+
+@app.get("/debug-db")
+async def debug_db():
+    """Debug endpoint to show DB path"""
+    from config import DB_PATH, BASE_DIR, DATA_DIR
+    import sqlite3
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [t[0] for t in cur.fetchall()]
+        conn.close()
+        return {
+            "BASE_DIR": str(BASE_DIR),
+            "DATA_DIR": str(DATA_DIR),
+            "DB_PATH": str(DB_PATH),
+            "DB_exists": DB_PATH.exists(),
+            "tables": tables
+        }
+    except Exception as e:
+        return {"error": str(e), "DB_PATH": str(DB_PATH)}
 
 @app.get("/stats")
 async def get_stats():
@@ -121,86 +147,38 @@ async def get_analytics():
 
 @app.get("/contacts")
 async def get_contacts():
-    """Get all hotel contacts (Airtable + SQLite fallback)."""
-    results = []
+    """Get hotel contacts from Airtable Rates table (unique hotel names)."""
     try:
-        # 1. Try Airtable
-        try:
-            airtable = AirtableClient()
-            if airtable.is_connected():
-                # Try HotelContacts table first
-                try:
-                    records = airtable.contacts_table.all()
-                    for r in records:
-                        f = r['fields']
-                        results.append({
-                            "id": r['id'],
-                            "name": f.get("Hotel Name"),
-                            "email_address": f.get("Email"),
-                            "website": f.get("Website"),
-                            "contact_person": f.get("Contact Person"),
-                            "discovery_source": f.get("Discovery Source"),
-                            "source": "Airtable"
-                        })
-                except Exception as e:
-                    logger.warning(f"Airtable HotelContacts table error: {e}")
-        except Exception as e:
-            logger.warning(f"Airtable connection error in get_contacts: {e}")
+        airtable = AirtableClient()
+        if not airtable.is_connected():
+            raise HTTPException(status_code=503, detail="Airtable not connected")
         
-        # 2. Add SQLite contacts
-        try:
-            manager = HotelManager()
-            # Get hotels with their emails from hotel_emails join
-            conn = manager._get_conn()
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # This query gets hotels and tries to find a 'reservations' or 'general' email
-            query = """
-                SELECT h.*, e.email as detail_email, e.purpose
-                FROM hotels h
-                LEFT JOIN hotel_emails e ON h.id = e.hotel_id
-            """
-            cursor.execute(query)
-            rows = cursor.fetchall()
-            
-            sqlite_data = {}
-            for row in rows:
-                hid = row['id']
-                if hid not in sqlite_data:
-                    sqlite_data[hid] = {
-                        "id": hid,
-                        "name": row['name'],
-                        "email_address": row['email_address'], # From hotels table
-                        "website": row['website'],
-                        "contact_person": row['contact_person'],
-                        "last_rate_request_date": row['last_rate_request_date'],
-                        "emails": [], # Collect all emails
-                        "source": "Local DB"
-                    }
-                
-                if row['detail_email']:
-                    sqlite_data[hid]["emails"].append({
-                        "email": row['detail_email'],
-                        "purpose": row['purpose']
-                    })
-                    # Use detail email if main email_address is empty
-                    if not sqlite_data[hid]["email_address"]:
-                        sqlite_data[hid]["email_address"] = row['detail_email']
-
-            # Merge with results
-            existing_names = {c['name'].lower() for c in results if c.get('name')}
-            for hid, data in sqlite_data.items():
-                if data['name'].lower() not in existing_names:
-                    results.append(data)
-            
-            conn.close()
-        except Exception as e:
-            logger.error(f"SQLite contact fetch error: {e}")
-                
+        # Get all rates
+        all_rates = airtable.rates_table.all()
+        
+        # Extract unique hotels
+        hotels = {}
+        for record in all_rates:
+            fields = record['fields']
+            hotel_name = fields.get('Hotel Name')
+            if hotel_name and hotel_name not in hotels:
+                hotels[hotel_name] = {
+                    "id": record['id'],
+                    "name": hotel_name,
+                    "email_address": None,  # Not in Rates table
+                    "website": None,
+                    "contact_person": None,
+                    "source": "Airtable (from Rates)"
+                }
+        
+        results = list(hotels.values())
+        logger.info(f"Returning {len(results)} unique hotels from Airtable Rates")
         return results
+        
     except Exception as e:
         logger.error(f"Error in get_contacts: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat")
@@ -214,4 +192,4 @@ async def chat_endpoint(request: QueryRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=4002)

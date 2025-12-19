@@ -109,7 +109,7 @@ class AirtableClient:
             record = {
                "Hotel Name": rate_data.get('hotel_name'),
                "Room Type": rate_data.get('room_type'),
-               "Occupancy": rate_data.get('occupancy'),  # New field
+               "Occupancy": self._map_occupancy(rate_data.get('occupancy')),
                "Meal Plan": rate_data.get('meal_plan'),
                "Price": clean_price(rate_data.get('price', rate_data.get('rate_per_night'))),
                "Currency": currency,
@@ -159,8 +159,8 @@ class AirtableClient:
             return False
             
         try:
-            # Check if contact already exists
-            formula = f"AND({{Hotel Name}}='{hotel_name}', {{Email}}='{email}')"
+            # Check if contact already exists by Email
+            formula = f"{{Email}}='{email}'"
             existing = self.contacts_table.all(formula=formula)
             
             record = {
@@ -171,11 +171,18 @@ class AirtableClient:
             }
             
             if existing:
-                # Update existing
+                # Update existing record
+                # Only update hotel name if the new one is not "Unknown" 
+                if "Unknown" in hotel_name and "Unknown" not in existing[0]['fields'].get('Hotel Name', ''):
+                     # Don't overwrite a good name with a bad one
+                     del record['Hotel Name']
+                
                 self.contacts_table.update(existing[0]['id'], record)
+                logger.info(f"Updated contact for {email}")
             else:
                 # Create new
                 self.contacts_table.create(record)
+                logger.info(f"Created new contact for {email}")
                 
             return True
         except Exception as e:
@@ -268,3 +275,19 @@ class AirtableClient:
             return None
         except:
             return None
+
+    def _map_occupancy(self, val) -> str:
+        """Map raw occupancy string to Airtable Single Select choices."""
+        if not val:
+            return None
+        
+        v = str(val).lower().strip()
+        
+        # Simple mapping
+        if "1" in v or "single" in v: return "Single"
+        if "2" in v or "double" in v: return "Double"
+        if "3" in v or "triple" in v: return "Triple"
+        if "4" in v or "quad" in v: return "Quad"
+        
+        # Default fallback
+        return "Other"

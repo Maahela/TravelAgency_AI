@@ -71,30 +71,47 @@ class RateParser:
             if not parsed_data:
                 return []
             
+            
             # Ensure we have a list of rates
+            # 2. Iterate and normalize
+            rates = []
+            
+            # Check if parsed_data is a list or a dict wrapping a list
             if isinstance(parsed_data, dict):
-                rates = [parsed_data]
+                raw_rates = parsed_data.get('rates', [parsed_data]) if 'rates' in parsed_data else [parsed_data]
             elif isinstance(parsed_data, list):
-                rates = parsed_data
+                raw_rates = parsed_data
             else:
                 logger.error(f"Unexpected JSON format from LLM: {type(parsed_data)}")
-                return []
-                
-                
-            # Enrich with metadata AND Standardize
-            for rate in rates:
-                rate['source_file'] = source_file
-                rate['extracted_at'] = datetime.now().isoformat()
-                rate['confidence'] = 0.90  # Placeholder confidence
-                
-                # Standardization
+                raw_rates = []
+
+            for rate in raw_rates:
+                # Standardize fields
                 rate['currency'] = self.standardize_currency(rate.get('currency'))
+                rate['meal_plan'] = self.standardize_meal_plan(rate.get('meal_plan'))
                 rate['season_start_date'] = self.parse_date(rate.get('season_start_date'))
                 rate['season_end_date'] = self.parse_date(rate.get('season_end_date'))
                 rate['validity_date'] = self.parse_date(rate.get('validity_date'))
+                rate['source_file'] = source_file
+                
+                # Ensure contact info is propagated if present in the specific rate object
+                # Note: If the LLM returning a single hotel object with a list of rates, 
+                # we might need to copy top-level contact info to each rate.
+                # Let's handle the case where contact info is at the top level of `parsed_data`
+                if isinstance(parsed_data, dict):
+                     if 'hotel_email' not in rate and 'hotel_email' in parsed_data:
+                         rate['hotel_email'] = parsed_data['hotel_email']
+                     if 'hotel_phone' not in rate and 'hotel_phone' in parsed_data:
+                         rate['hotel_phone'] = parsed_data['hotel_phone']
+                     if 'hotel_address' not in rate and 'hotel_address' in parsed_data:
+                         rate['hotel_address'] = parsed_data['hotel_address']
+                
+                rates.append(rate)
                 
             logger.info(f"Successfully passed {len(rates)} rates from {source_file}")
             return rates
+
+
             
         except Exception as e:
             logger.error(f"Error parsing rate data: {e}")
@@ -128,7 +145,7 @@ class RateParser:
         
         # 3. Numeric Validation
         try:
-            rate = float(rate_data.get('rate_per_night', 0))
+            rate = float(rate_data.get('rate_per_night') or 0)
             if rate <= 0:
                 validation_result['valid'] = False
                 validation_result['errors'].append("Rate must be positive")
@@ -172,6 +189,37 @@ class RateParser:
         # Default fallback
         return "USD"
     
+    def standardize_meal_plan(self, meal_plan: str) -> str:
+        """
+        Standardize meal plan codes to full names.
+        """
+        if not meal_plan:
+            return "Room Only"
+
+        mp = meal_plan.strip().upper()
+        
+        mapping = {
+            "BB": "Bed & Breakfast",
+            "B&B": "Bed & Breakfast",
+            "BED AND BREAKFAST": "Bed & Breakfast",
+            "BED & BREAKFAST": "Bed & Breakfast",
+            "HB": "Half Board",
+            "HALF BOARD": "Half Board",
+            "FB": "Full Board",
+            "FULL BOARD": "Full Board",
+            "AI": "All Inclusive",
+            "ALL INCLUSIVE": "All Inclusive",
+            "RO": "Room Only",
+            "ROOM ONLY": "Room Only"
+        }
+        
+        # Exact match check
+        if mp in mapping:
+            return mapping[mp]
+            
+        # Return original capitalized if no match
+        return meal_plan.title()
+
     def parse_date(self, date_string: str) -> Optional[str]:
         """
         Parse various date formats into ISO format (YYYY-MM-DD).
@@ -244,7 +292,23 @@ class RateParser:
             
             conn.commit()
             conn.close()
+            conn.commit()
+            conn.close()
             logger.info(f"Extended contract data stored for {source_file}")
+            
+            # --- Sync to Airtable ---
+            try:
+                from database.airtable_client import AirtableClient
+                airtable = AirtableClient()
+                if airtable.is_connected():
+                    # Inject metadata for Airtable
+                    contract_json['hotel_name'] = hotel_name
+                    contract_json['source_file'] = source_file
+                    airtable.insert_contract_data(contract_json)
+            except Exception as e:
+                logger.warning(f"Failed to sync contract data to Airtable: {e}")
+            # ------------------------
+            
             return True
             
         except Exception as e:
@@ -316,6 +380,21 @@ class RateParser:
             conn.commit()
             conn.close()
             logger.info(f"Stored {items_inserted} price items for {source_file}")
+            
+            # --- Sync to Airtable ---
+            try:
+                from database.airtable_client import AirtableClient
+                airtable = AirtableClient()
+                if airtable.is_connected():
+                    for item in price_data.get('priced_items', []):
+                        # Ensure hotel name is attached for Airtable record
+                        item['hotel_name'] = hotel_name
+                        item['source_file'] = source_file
+                        airtable.insert_price_item(item)
+            except Exception as e:
+                logger.warning(f"Failed to sync price items to Airtable: {e}")
+            # ------------------------
+
             return True
             
         except Exception as e:

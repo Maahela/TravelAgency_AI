@@ -8,7 +8,7 @@ from typing import Dict
 def get_rate_parsing_prompt(extracted_text: str) -> str:
     """Generate prompt for parsing hotel rate data."""
     prompt = f"""Extract hotel rate information from text as JSON.
-Required: hotel_name, room_type, occupancy (Single/Double/Triple), rate_per_night, currency, meal_plan,
+Required: hotel_name, hotel_email, hotel_phone, hotel_address, room_type, occupancy (Single/Double/Triple), rate_per_night, currency, meal_plan,
 season_start_date, season_end_date, conditions, validity_date.
 
 Text: {extracted_text}

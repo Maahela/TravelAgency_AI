@@ -29,21 +29,27 @@ def insert_rate(rate_data: Dict, db_path: Path) -> bool:
     """
     logger.info(f"Inserting rate for {rate_data.get('hotel_name', 'Unknown')}")
     
-    # 1. Sync to Airtable
-    from database.airtable_client import AirtableClient
     try:
-        airtable = AirtableClient()
-        if airtable.is_connected():
-            airtable.insert_rate(rate_data)
-    except Exception as e:
-        logger.warning(f"Failed to sync rate to Airtable: {e}")
-        
-    # 2. Insert to SQLite (keep legacy logic as backup for now)
-    
-    try:
+        # 1. Check for duplicates in SQLite (Source of Truth for state)
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
         
+        if check_duplicate(cursor, rate_data):
+            conn.close()
+            # We return True because it's "successfully processed" (skipped)
+            # rather than an error that needs retrying
+            return True
+            
+        # 2. Sync to Airtable (if not duplicate)
+        from database.airtable_client import AirtableClient
+        try:
+            airtable = AirtableClient()
+            if airtable.is_connected():
+                airtable.insert_rate(rate_data)
+        except Exception as e:
+            logger.warning(f"Failed to sync rate to Airtable: {e}")
+            
+        # 3. Insert to SQLite
         cursor.execute("""
             INSERT INTO rates (
                 hotel_name, room_type, occupancy, rate_per_night, currency,
@@ -95,26 +101,61 @@ def insert_rate(rate_data: Dict, db_path: Path) -> bool:
         return False
 
 
+def check_duplicate(cursor, rate_data: Dict) -> bool:
+    """
+    Check if a rate already exists in the database.
+    Matches against: Hotel, Room, Meal Plan, Dates, and Occupancy.
+    """
+    try:
+        # Build query components dynamically based on available fields
+        conditions = [
+            "hotel_name = ?",
+            "room_type = ?",
+            "meal_plan = ?",
+            "season_start_date = ?",
+            "season_end_date = ?"
+        ]
+        params = [
+            rate_data.get('hotel_name'),
+            rate_data.get('room_type'),
+            rate_data.get('meal_plan'),
+            rate_data.get('season_start_date'),
+            rate_data.get('season_end_date')
+        ]
+        
+        # Check occupancy if present in data
+        if rate_data.get('occupancy'):
+            conditions.append("occupancy = ?")
+            params.append(rate_data.get('occupancy'))
+            
+        query = f"SELECT id FROM rates WHERE {' AND '.join(conditions)}"
+        
+        cursor.execute(query, tuple(params))
+        result = cursor.fetchone()
+        
+        if result:
+            logger.info("Duplicate rate found (ID: %s) - Skipping", result[0])
+            return True
+            
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error checking duplicates: {e}")
+        return False
+
+
 def insert_rates_batch(rates: List[Dict], db_path: Path) -> int:
     """
     Insert multiple rate records in a single transaction.
     """
-    # Also try Airtable batch if available
-    from database.airtable_client import AirtableClient
-    airtable = AirtableClient()
-    
-    if airtable.is_connected():
-        logger.info("Syncing batch to Airtable...")
-        for rate in rates:
-            airtable.insert_rate(rate)
-            
-    logger.info(f"Batch inserting {len(rates)} rates locally")
+    logger.info(f"Batch processing {len(rates)} rates...")
     
     success_count = 0
     for rate in rates:
         if insert_rate(rate, db_path):
             success_count += 1
     
+    logger.info(f"Batch complete. Inserted {success_count}/{len(rates)} rates.")
     return success_count
 
 
