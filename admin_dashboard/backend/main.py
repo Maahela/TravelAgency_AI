@@ -5,6 +5,7 @@ from typing import List, Dict, Optional
 import os
 import sys
 from pydantic import BaseModel
+import sqlite3
 
 # Add parent directory to path to import existing modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -14,6 +15,9 @@ from database.query_rates import search_rates, format_rates_for_llm
 from database.query_price_items import search_price_items
 from database.hotel_management import HotelManager
 from chat.chat_interface import ChatInterface
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 app = FastAPI(title="JAKEmailBot Admin API")
 
@@ -118,44 +122,85 @@ async def get_analytics():
 @app.get("/contacts")
 async def get_contacts():
     """Get all hotel contacts (Airtable + SQLite fallback)."""
+    results = []
     try:
-        results = []
         # 1. Try Airtable
-        airtable = AirtableClient()
-        if airtable.is_connected():
-            records = airtable.contacts_table.all()
-            for r in records:
-                f = r['fields']
-                results.append({
-                    "id": r['id'],
-                    "name": f.get("Hotel Name"),
-                    "email_address": f.get("Email"),
-                    "website": f.get("Website"),
-                    "contact_person": f.get("Contact Person"),
-                    "discovery_source": f.get("Discovery Source"),
-                    "source": "Airtable"
-                })
+        try:
+            airtable = AirtableClient()
+            if airtable.is_connected():
+                # Try HotelContacts table first
+                try:
+                    records = airtable.contacts_table.all()
+                    for r in records:
+                        f = r['fields']
+                        results.append({
+                            "id": r['id'],
+                            "name": f.get("Hotel Name"),
+                            "email_address": f.get("Email"),
+                            "website": f.get("Website"),
+                            "contact_person": f.get("Contact Person"),
+                            "discovery_source": f.get("Discovery Source"),
+                            "source": "Airtable"
+                        })
+                except Exception as e:
+                    logger.warning(f"Airtable HotelContacts table error: {e}")
+        except Exception as e:
+            logger.warning(f"Airtable connection error in get_contacts: {e}")
         
-        # 2. Add SQLite contacts if not already present or if Airtable failed
-        manager = HotelManager()
-        sqlite_contacts = manager.get_all_hotels()
-        
-        # Simple merge: if name matching exist in results, skip
-        existing_names = {c['name'].lower() for c in results if c.get('name')}
-        for c in sqlite_contacts:
-            if c['name'].lower() not in existing_names:
-                results.append({
-                    "id": c['id'],
-                    "name": c['name'],
-                    "email_address": c.get('email_address'),
-                    "website": c.get('website'),
-                    "contact_person": c.get('contact_person'),
-                    "last_rate_request_date": c.get('last_rate_request_date'),
-                    "source": "Local DB"
-                })
+        # 2. Add SQLite contacts
+        try:
+            manager = HotelManager()
+            # Get hotels with their emails from hotel_emails join
+            conn = manager._get_conn()
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # This query gets hotels and tries to find a 'reservations' or 'general' email
+            query = """
+                SELECT h.*, e.email as detail_email, e.purpose
+                FROM hotels h
+                LEFT JOIN hotel_emails e ON h.id = e.hotel_id
+            """
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            
+            sqlite_data = {}
+            for row in rows:
+                hid = row['id']
+                if hid not in sqlite_data:
+                    sqlite_data[hid] = {
+                        "id": hid,
+                        "name": row['name'],
+                        "email_address": row['email_address'], # From hotels table
+                        "website": row['website'],
+                        "contact_person": row['contact_person'],
+                        "last_rate_request_date": row['last_rate_request_date'],
+                        "emails": [], # Collect all emails
+                        "source": "Local DB"
+                    }
+                
+                if row['detail_email']:
+                    sqlite_data[hid]["emails"].append({
+                        "email": row['detail_email'],
+                        "purpose": row['purpose']
+                    })
+                    # Use detail email if main email_address is empty
+                    if not sqlite_data[hid]["email_address"]:
+                        sqlite_data[hid]["email_address"] = row['detail_email']
+
+            # Merge with results
+            existing_names = {c['name'].lower() for c in results if c.get('name')}
+            for hid, data in sqlite_data.items():
+                if data['name'].lower() not in existing_names:
+                    results.append(data)
+            
+            conn.close()
+        except Exception as e:
+            logger.error(f"SQLite contact fetch error: {e}")
                 
         return results
     except Exception as e:
+        logger.error(f"Error in get_contacts: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat")

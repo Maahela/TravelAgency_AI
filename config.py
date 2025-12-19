@@ -59,7 +59,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
 TESSERACT_PATH = os.getenv("TESSERACT_PATH", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 
 # Database Configuration
-DB_PATH = Path(os.getenv("DB_PATH", "./data/rates.db"))
+DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "rates.db")))
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME", "rates")
