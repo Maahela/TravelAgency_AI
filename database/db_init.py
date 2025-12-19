@@ -42,6 +42,7 @@ def initialize_database(db_path: Path) -> bool:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 hotel_name TEXT NOT NULL,
                 room_type TEXT NOT NULL,
+                occupancy TEXT,
                 rate_per_night REAL NOT NULL,
                 currency TEXT NOT NULL,
                 meal_plan TEXT,
@@ -56,6 +57,12 @@ def initialize_database(db_path: Path) -> bool:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Migration: Add occupancy column if missing
+        cursor.execute("PRAGMA table_info(rates)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'occupancy' not in columns:
+            cursor.execute("ALTER TABLE rates ADD COLUMN occupancy TEXT")
         
         # Create indexes
         cursor.execute("""

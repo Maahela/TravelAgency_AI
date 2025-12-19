@@ -25,6 +25,7 @@ class ItineraryExtractor:
                     "nights": 3,
                     "rooms": 1,
                     "room_type": "Standard/Double/etc",
+                    "occupancy": "Single/Double/Triple", // Map based on guest count or explicit request
                     "meal_plan": "BB/HB/FB",
                     "guests_per_room": 2,  
                     "explicitly_stated": true/false  // true only if user matched this specific hotel
@@ -36,10 +37,11 @@ class ItineraryExtractor:
         
         RULES:
         1. If user says "2 nights at Taj and 3 at Heritance", create two stay entries.
-        2. "guests_per_room": use 2 (Double) if not specified, unless context implies otherwise (e.g. "for 3 people" might mean 1 triple or 2 rooms, default to 1 room/3 pax if ambiguous or ask). Actually, better to DEFAULT to 1 room, guests=2 if unspecified.
-        3. "room_type": Default to "Standard" or "Double" if not specified.
-        4. "meal_plan": Default to "BB" (Bed & Breakfast) if not specified.
-        5. "missing_info": If "nights" is absolutely missing for a hotel, add "Nights for [Hotel]" to this list.
+        2. "guests_per_room": use 2 (Double) if not specified.
+        3. "occupancy": Explicitly map 1 guest -> Single, 2 guests -> Double, 3 guests -> Triple.
+        4. "room_type": Default to "Standard" or "Double" if not specified.
+        5. "meal_plan": Default to "BB" (Bed & Breakfast) if not specified.
+        6. "missing_info": If "nights" is absolutely missing for a hotel, add "Nights for [Hotel]" to this list.
         """
 
     def extract(self, user_query: str) -> Dict:

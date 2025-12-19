@@ -54,16 +54,13 @@ class BudgetCalculator:
             guests = int(stay.get("guests_per_room", 2)) * rooms
             room_type = stay.get("room_type", "Standard")
             meal_plan = stay.get("meal_plan", "BB")
+            occupancy = stay.get("occupancy") # Single/Double/Triple
             
             # 1. Get Rate
             # We fetch all rates for this hotel to find best match
-            # In a real scenario, we'd pass room_type to search_rates if supported, 
-            # currently search_rates mimics a simple filter.
-            # We'll fetch all and filter in python for best match.
-            
             rates = search_rates(hotel_name=hotel_name, db_path=self.db_path)
             
-            # Find matching rate logic (Seasonality Aware)
+            # Find matching rate logic (Seasonality & Occupancy Aware)
             check_in = stay.get('check_in') # YYYY-MM-DD
             selected_rate = None
             
@@ -72,7 +69,6 @@ class BudgetCalculator:
                 if not rate.get('season_start_date') or not check_in_date_str:
                     return True # Assume distinct if no dates
                 try:
-                    # Simple string comparison YYYY-MM-DD works, but better to be safe
                     s_start = str(rate['season_start_date'])[:10]
                     s_end = str(rate['season_end_date'])[:10]
                     c_in = str(check_in_date_str)[:10]
@@ -82,12 +78,21 @@ class BudgetCalculator:
 
             candidates = []
             for r in rates:
-                # 1. Room Type Match
-                if room_type.lower() in str(r.get('room_type', '')).lower():
+                # 1. Room Type Match (case-insensitive)
+                r_type = str(r.get('room_type', '')).lower()
+                r_occ = str(r.get('occupancy', r.get('Occupancy', ''))).lower()
+                
+                if room_type.lower() in r_type:
                     candidates.append(r)
             
+            # 1.5 Occupancy Refinement
+            if occupancy and candidates:
+                occ_matches = [r for r in candidates if occupancy.lower() in str(r.get('occupancy', r.get('Occupancy', ''))).lower()]
+                if occ_matches:
+                    candidates = occ_matches
+            
             if not candidates:
-                 candidates = rates # Fallback to all if no room type match
+                 candidates = rates # Fallback to all if no match
             
             result = HotelResult(hotel_name=hotel_name, nights=nights, room_cost=None)
 

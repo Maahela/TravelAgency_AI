@@ -42,6 +42,7 @@ class AirtableClient:
         self.rates_table = self.api.table(self.base_id, "Rates")
         self.hotels_table = self.api.table(self.base_id, "Hotels")
         self.processing_log_table = self.api.table(self.base_id, "ProcessingLog")
+        self.contacts_table = self.api.table(self.base_id, "HotelContacts")
         
         self._initialized = True
         logger.info("AirtableClient initialized successfully")
@@ -64,7 +65,8 @@ class AirtableClient:
                 try:
                     # Remove currency symbols and commas
                     s = str(val).replace('$', '').replace(',', '').strip()
-                    return float(s)
+                    # Return as string since Airtable numeric field is rejecting floats currently
+                    return s 
                 except:
                     return None
 
@@ -72,15 +74,36 @@ class AirtableClient:
             def clean_date(val):
                 if not val or str(val).strip() == "":
                     return None
-                # Airtable strictly needs YYYY-MM-DD. 
-                # If our DB has other formats, we might need parsing.
-                # For now, just pass non-empty, assuming ISO from scraper.
-                return val
+                
+                val_str = str(val).strip()
+                # If it's already YYYY-MM-DD, return as is
+                import re
+                if re.match(r'^\d{4}-\d{2}-\d{2}$', val_str):
+                    return val_str
+                    
+                # Handle DD.MM.YYYY (from our SQLite)
+                if re.match(r'^\d{2}\.\d{2}\.\d{4}$', val_str):
+                    parts = val_str.split('.')
+                    return f"{parts[2]}-{parts[1]}-{parts[0]}"
+                    
+                # Handle DD/MM/YYYY
+                if re.match(r'^\d{2}/\d{2}/\d{4}$', val_str):
+                    parts = val_str.split('/')
+                    return f"{parts[2]}-{parts[1]}-{parts[0]}"
+
+                # Attempt generic parsing if dateutil is available
+                try:
+                    from dateutil import parser
+                    dt = parser.parse(val_str)
+                    return dt.strftime("%Y-%m-%d")
+                except:
+                    return None
 
             # Map Python dict keys to Airtable column names
             record = {
                "Hotel Name": rate_data.get('hotel_name'),
                "Room Type": rate_data.get('room_type'),
+               "Occupancy": rate_data.get('occupancy'),  # New field
                "Meal Plan": rate_data.get('meal_plan'),
                "Price": clean_price(rate_data.get('price', rate_data.get('rate_per_night'))),
                "Currency": rate_data.get('currency'),
@@ -98,6 +121,11 @@ class AirtableClient:
             return True
             
         except Exception as e:
+            import traceback
+            error_details = getattr(e, 'response', None)
+            if error_details:
+                 logger.error(f"Airtable API Error Body: {error_details.text}")
+            
             logger.error(f"Failed to insert rate to Airtable: {e}")
             logger.error(f"Payload was: {record}")
             return False
@@ -116,3 +144,34 @@ class AirtableClient:
             })
         except Exception as e:
             logger.error(f"Failed to log to Airtable: {e}")
+
+    def log_hotel_contact(self, hotel_name: str, email: str, source: str = "Email Parsing", confidence: float = 1.0) -> bool:
+        """
+        Log or update a hotel contact email in Airtable.
+        """
+        if not self.is_connected():
+            return False
+            
+        try:
+            # Check if contact already exists
+            formula = f"AND({{Hotel Name}}='{hotel_name}', {{Email}}='{email}')"
+            existing = self.contacts_table.all(formula=formula)
+            
+            record = {
+                "Hotel Name": hotel_name,
+                "Email": email,
+                "Discovery Source": source,
+                "Confidence": confidence
+            }
+            
+            if existing:
+                # Update existing
+                self.contacts_table.update(existing[0]['id'], record)
+            else:
+                # Create new
+                self.contacts_table.create(record)
+                
+            return True
+        except Exception as e:
+            logger.error(f"Failed to log hotel contact: {e}")
+            return False

@@ -46,14 +46,15 @@ def insert_rate(rate_data: Dict, db_path: Path) -> bool:
         
         cursor.execute("""
             INSERT INTO rates (
-                hotel_name, room_type, rate_per_night, currency,
+                hotel_name, room_type, occupancy, rate_per_night, currency,
                 meal_plan, season_start_date, season_end_date,
                 conditions, validity_date, source_file, 
                 extracted_at, confidence
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             rate_data.get('hotel_name'),
             rate_data.get('room_type'),
+            rate_data.get('occupancy'),
             rate_data.get('rate_per_night'),
             rate_data.get('currency'),
             rate_data.get('meal_plan'),
@@ -69,6 +70,22 @@ def insert_rate(rate_data: Dict, db_path: Path) -> bool:
         conn.commit()
         rate_id = cursor.lastrowid
         conn.close()
+
+        # 3. Log Hotel Contact if email exists in rate_data (from discovery)
+        email = rate_data.get('hotel_email') or rate_data.get('email')
+        if email and rate_data.get('hotel_name'):
+            try:
+                from database.airtable_client import AirtableClient
+                airtable = AirtableClient()
+                if airtable.is_connected():
+                    airtable.log_hotel_contact(
+                        hotel_name=rate_data['hotel_name'],
+                        email=email,
+                        source="Email Extraction",
+                        confidence=rate_data.get('confidence', 1.0)
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to log hotel contact: {e}")
         
         logger.info(f"Rate inserted successfully with ID {rate_id}")
         return True

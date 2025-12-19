@@ -51,28 +51,58 @@ def migrate_to_airtable():
         
     print(f"Found {len(rates_data)} rates locally.")
     
-    # 3. Upload to Airtable
-    print("Uploading to Airtable (this may take a while)...")
+    # 3. Upload to Airtable (Idempotent)
+    print("Fetching existing records from Airtable to avoid duplicates...")
+    existing_records = client.rates_table.all()
+    # Create a set of (hotel, room_type) for quick lookup
+    # Note: Use case-insensitive and stripped comparison
+    existing_set = set()
+    for r in existing_records:
+        f = r['fields']
+        hotel = str(f.get('Hotel Name', '')).strip().lower()
+        room = str(f.get('Room Type', '')).strip().lower()
+        price = str(f.get('Price', '')).strip()
+        start = str(f.get('Season Start', '')).strip()
+        end = str(f.get('Season End', '')).strip()
+        
+        # Unique tuple: (hotel, room, price, start, end)
+        existing_set.add((hotel, room, price, start, end))
+    
+    print(f"Found {len(existing_set)} unique seasonal rates already in Airtable.")
+    print("Uploading remaining rates (this may take a while)...")
     
     count = 0
+    skipped = 0
     errors = 0
     
-    # Airtable API has rate limits (5 requests/sec). pyairtable handles specific retry logic usually,
-    # but let's be safe and simple.
     for rate in rates_data:
+        hotel = str(rate.get('hotel_name', '')).strip().lower()
+        room = str(rate.get('room_type', '')).strip().lower()
+        price = str(rate.get('rate_per_night', '')).strip()
+        # Dates in SQLite might be season_start_date
+        start = str(rate.get('season_start_date', '')).strip()
+        end = str(rate.get('season_end_date', '')).strip()
+        
+        if (hotel, room, price, start, end) in existing_set:
+            skipped += 1
+            continue
+            
         if client.insert_rate(rate):
             count += 1
-            print(f"[OK] Imported: {rate.get('hotel_name')} - {rate.get('room_type')}")
+            print(f"[OK] {count+skipped}/{len(rates_data)} - Imported: {rate.get('hotel_name')} - {rate.get('room_type')}")
+            # Add to set to avoid duplicates within the same run if they exist in source
+            existing_set.add((hotel, room, price, start, end))
         else:
             errors += 1
-            print(f"[FAIL] Failed: {rate.get('hotel_name')}")
+            print(f"[FAIL] {count+skipped+errors}/{len(rates_data)} - Failed: {rate.get('hotel_name')} - {rate.get('room_type')}")
         
-        # Slight delay to be nice to API limits if not using batch
-        time.sleep(0.2) 
+        # Increased delay for Airtable limits (5 requests/sec)
+        time.sleep(0.3) 
         
     print("\n" + "="*50)
-    print(f"Migration Complete!")
-    print(f"Successful: {count}")
+    print(f"Sync Complete!")
+    print(f"New Imports: {count}")
+    print(f"Already Existed: {skipped}")
     print(f"Failed: {errors}")
     print("="*50)
 
