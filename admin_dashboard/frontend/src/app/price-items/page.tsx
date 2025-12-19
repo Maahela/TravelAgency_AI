@@ -5,16 +5,14 @@ import React, { useEffect, useState } from 'react';
 import { 
   Package, 
   Search, 
-  Tag, 
-  Info,
   Calendar,
   Layers,
   ArrowUpRight,
-  TrendingUp,
   CreditCard
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getPriceItems } from '@/services/api';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 const categoryColors: Record<string, string> = {
   meal_rate: 'bg-orange-500/10 text-orange-500',
@@ -84,8 +82,34 @@ export default function PriceItemsPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {loading ? (
-          [1,2,3,4,5,6].map(i => (
-            <div key={i} className="glass-card h-64 rounded-3xl animate-pulse" />
+          [1, 2, 3, 4, 5, 6].map((i) => (
+            <div
+              key={i}
+              className="glass-card p-6 rounded-[2rem] flex flex-col justify-between h-64 animate-pulse relative overflow-hidden"
+            >
+              <div className="space-y-4">
+                <div className="flex justify-between items-start">
+                  <Skeleton className="h-5 w-24 rounded-full" />
+                  <Skeleton className="h-4 w-4 rounded-full" />
+                </div>
+                <div>
+                  <Skeleton className="h-6 w-3/4 mb-2" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-2/3 mt-1" />
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <Skeleton className="h-12 rounded-2xl" />
+                  <Skeleton className="h-12 rounded-2xl" />
+                </div>
+              </div>
+              <div className="mt-8 pt-6 border-t border-white/[0.05] flex justify-between items-end">
+                <div>
+                   <Skeleton className="h-3 w-16 mb-1" />
+                   <Skeleton className="h-8 w-24" />
+                </div>
+                <Skeleton className="h-4 w-20" />
+              </div>
+            </div>
           ))
         ) : items.length === 0 ? (
           <div className="col-span-full py-20 text-center glass-card rounded-3xl">

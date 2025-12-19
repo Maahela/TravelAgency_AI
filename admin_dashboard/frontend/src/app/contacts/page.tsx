@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getContacts } from '@/services/api';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 interface HotelContact {
   id: number;
@@ -95,9 +96,32 @@ export default function ContactsPage() {
             </thead>
             <tbody className="divide-y divide-white/[0.03]">
               {loading ? (
-                [1,2,3,4,5].map(i => (
+                // Skeleton Loading State
+                [1, 2, 3, 4, 5].map((i) => (
                   <tr key={i} className="animate-pulse">
-                    <td colSpan={4} className="px-8 py-6 h-20 bg-white/[0.01]" />
+                    <td className="px-8 py-6">
+                      <div className="flex items-center gap-4">
+                        <Skeleton className="w-10 h-10 rounded-xl" />
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-40" />
+                        <Skeleton className="h-3 w-28" />
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                       <Skeleton className="h-6 w-16 rounded-lg" />
+                    </td>
+                    <td className="px-8 py-6 text-right">
+                      <div className="flex flex-col items-end gap-1">
+                        <Skeleton className="h-3 w-20" />
+                      </div>
+                    </td>
                   </tr>
                 ))
               ) : filteredContacts.length === 0 ? (

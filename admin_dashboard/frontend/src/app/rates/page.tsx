@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getRates, updateRate } from '@/services/api';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 interface Rate {
   id: string;
@@ -101,9 +102,36 @@ export default function RatesPage() {
             </thead>
             <tbody className="divide-y divide-white/[0.03]">
               {loading ? (
-                [1,2,3,4,5].map(i => (
+                [1, 2, 3, 4, 5].map((i) => (
                   <tr key={i} className="animate-pulse">
-                    <td colSpan={5} className="px-8 py-6 h-20 bg-white/[0.01]" />
+                    <td className="px-8 py-6">
+                      <div className="flex items-center gap-4">
+                        <Skeleton className="w-10 h-10 rounded-xl" />
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-24" />
+                        <div className="flex gap-2">
+                           <Skeleton className="h-5 w-8 rounded" />
+                           <Skeleton className="h-5 w-16 rounded" />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <Skeleton className="h-4 w-32" />
+                    </td>
+                    <td className="px-8 py-6 text-right">
+                       <Skeleton className="h-6 w-20 ml-auto" />
+                       <Skeleton className="h-3 w-12 ml-auto mt-1" />
+                    </td>
+                    <td className="px-8 py-6 text-right">
+                       <Skeleton className="h-8 w-8 rounded-lg ml-auto" />
+                    </td>
                   </tr>
                 ))
               ) : rates.length === 0 ? (
@@ -227,6 +255,7 @@ export default function RatesPage() {
                    const updated = await getRates(search || undefined);
                    setRates(updated);
                 } catch (err) {
+                   console.error(err);
                    alert("Failed to update rate");
                 }
               }}>

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getStats, getRates, getAnalytics } from '@/services/api';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 const container = {
   hidden: { opacity: 0 },
@@ -53,11 +54,48 @@ export default function Dashboard() {
     fetchData();
   }, []);
 
+  // Helper to determine color based on trend (positive/neutral/negative)
+  const getTrendColor = (trend: string) => {
+     if (trend?.includes('+')) return 'text-emerald-500 bg-emerald-500/10';
+     if (trend?.includes('-')) return 'text-red-500 bg-red-500/10';
+     return 'text-muted-foreground bg-neutral-500/10';
+  };
+
+  const getTrendIcon = (trend: string) => {
+     if (trend?.includes('+')) return TrendingUp;
+     if (trend?.includes('-')) return TrendingUp; // Or TrendingDown if imported
+     return Activity;
+  };
+
   const statsCards = [
-    { name: 'Total Rates', value: stats?.total_rates || '0', icon: BarChart3, color: 'text-blue-500' },
-    { name: 'Price Items', value: stats?.total_price_items || '0', icon: Package, color: 'text-indigo-500' },
-    { name: 'Processing Logs', value: stats?.total_logs || '0', icon: Activity, color: 'text-emerald-500' },
-    { name: 'Live Hotels', value: '24', icon: Layers, color: 'text-violet-500' },
+    { 
+      name: 'Total Rates', 
+      value: stats?.total_rates || '0', 
+      trend: stats?.rates_trend || '0%',
+      icon: BarChart3, 
+      color: 'text-blue-500' 
+    },
+    { 
+      name: 'Price Items', 
+      value: stats?.total_price_items || '0', 
+      trend: stats?.price_items_trend || '0%',
+      icon: Package, 
+      color: 'text-indigo-500' 
+    },
+    { 
+      name: 'Processing Logs', 
+      value: stats?.total_logs || '0', 
+      trend: stats?.logs_trend || '0%',
+      icon: Activity, 
+      color: 'text-emerald-500' 
+    },
+    { 
+      name: 'Live Hotels', 
+      value: stats?.live_hotels || '0', 
+      trend: 'Active',
+      icon: Layers, 
+      color: 'text-violet-500' 
+    },
   ];
 
   return (
@@ -91,15 +129,15 @@ export default function Dashboard() {
               <div className={`p-3 rounded-2xl bg-white/[0.03] ${card.color}`}>
                 <card.icon size={24} />
               </div>
-              <div className="p-1 px-2 rounded-lg bg-emerald-500/10 text-emerald-500 text-[10px] font-bold flex items-center gap-1">
-                <TrendingUp size={10} />
-                +12%
+              <div className={`p-1 px-2 rounded-lg text-[10px] font-bold flex items-center gap-1 ${getTrendColor(card.trend)}`}>
+                {React.createElement(getTrendIcon(card.trend), { size: 10 })}
+                {card.trend}
               </div>
             </div>
             <div>
               <p className="text-sm text-muted-foreground font-medium mb-1">{card.name}</p>
               <h3 className="text-3xl font-bold font-mono">
-                {loading ? '...' : card.value}
+                {loading ? <Skeleton className="h-8 w-16" /> : card.value}
               </h3>
             </div>
           </motion.div>
@@ -131,9 +169,21 @@ export default function Dashboard() {
                 </thead>
                 <tbody className="divide-y divide-card-border">
                   {loading ? (
-                    [1,2,3].map(i => (
+                    [1, 2, 3].map((i) => (
                       <tr key={i} className="animate-pulse">
-                        <td colSpan={4} className="px-6 py-4 h-16 bg-white/[0.02]" />
+                         <td className="px-6 py-4">
+                            <Skeleton className="h-4 w-32 mb-1" />
+                            <Skeleton className="h-3 w-20" />
+                         </td>
+                         <td className="px-6 py-4">
+                            <Skeleton className="h-4 w-24" />
+                         </td>
+                         <td className="px-6 py-4">
+                            <Skeleton className="h-4 w-16" />
+                         </td>
+                         <td className="px-6 py-4">
+                            <Skeleton className="h-6 w-16 rounded-full" />
+                         </td>
                       </tr>
                     ))
                   ) : recentRates.map((rate, i) => (

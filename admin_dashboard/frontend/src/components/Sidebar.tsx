@@ -9,7 +9,6 @@ import {
   MessageSquare, 
   Table, 
   Settings, 
-  Mail, 
   Users, 
   ShieldCheck,
   Package
@@ -65,17 +64,7 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-card-border">
-        <div className="p-4 rounded-2xl bg-white/[0.03] space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-accent to-violet-500" />
-            <div className="flex-1 overflow-hidden">
-              <p className="text-xs font-medium truncate">Maahela</p>
-              <p className="text-[10px] text-muted-foreground truncate">maahela@jake.io</p>
-            </div>
-          </div>
-        </div>
-      </div>
+
     </div>
   );
 }
