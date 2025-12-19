@@ -14,6 +14,7 @@ def search_rates(
     hotel_name: Optional[str] = None,
     room_type: Optional[str] = None,
     date_range: Optional[tuple] = None,
+    occupancy: Optional[str] = None,
     max_rate: Optional[float] = None,
     db_path: Optional[Path] = None
 ) -> List[Dict]:
@@ -55,8 +56,15 @@ def search_rates(
                     # Case-insensitive search in Airtable
                     formulas.append(f"SEARCH(LOWER('{hotel_name}'), LOWER({{Hotel Name}}))")
                 
-                # Note: Price query in Airtable string field is hard, skipping simple max_rate for now in Airtable
-                # or fetching all for hotel and filtering in python.
+                if occupancy:
+                    # Flexible occupancy: match field OR room_type containing the word OR empty field
+                    formulas.append(f"OR({{Occupancy}}='{occupancy}', SEARCH(LOWER('{occupancy}'), LOWER({{Room Type}})), {{Occupancy}}=BLANK())")
+                
+                if date_range:
+                    # Precise date overlap for Airtable
+                    start, end = date_range
+                    formulas.append(f"{{Season Start}} <= '{end}'")
+                    formulas.append(f"{{Season End}} >= '{start}'")
                 
                 formula = f"AND({', '.join(formulas)})" if formulas else None
                 
@@ -107,6 +115,15 @@ def search_rates(
         if room_type:
             query += " AND room_type LIKE ?"
             params.append(f"%{room_type}%")
+        
+        if room_type:
+            query += " AND room_type LIKE ?"
+            params.append(f"%{room_type}%")
+        
+        if occupancy:
+            # Flexible occupancy: match field OR room_type containing the word
+            query += " AND (occupancy = ? OR room_type LIKE ? OR occupancy IS NULL)"
+            params.extend([occupancy, f"%{occupancy}%"])
         
         if date_range:
             start_date, end_date = date_range

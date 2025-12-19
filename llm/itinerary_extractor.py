@@ -19,39 +19,51 @@ class ItineraryExtractor:
         OUTPUT FORMAT (JSON ONLY):
         {
             "trip_start_date": "YYYY-MM-DD" or "23 Jan", // Extract the FIRST date mentioned
+            "guests": {
+                "adults": 2,
+                "children": 1,
+                "child_ages": [5] // If mentioned
+            },
             "stays": [
                 {
                     "hotel_name": "Exact Hotel Name",
                     "nights": 3,
                     "rooms": 1,
                     "room_type": "Standard/Double/etc",
-                    "occupancy": "Single/Double/Triple", // Map based on guest count or explicit request
+                    "occupancy": "Single/Double/Triple", // Map based on adults per room
                     "meal_plan": "BB/HB/FB",
-                    "guests_per_room": 2,  
-                    "explicitly_stated": true/false  // true only if user matched this specific hotel
+                    "explicitly_stated": true/false 
                 }
             ],
             "missing_info": ["list", "of", "missing", "params"], 
-            "currency": "USD" (default if not specified)
+            "currency": "USD"
         }
         
         RULES:
         1. If user says "2 nights at Taj and 3 at Heritance", create two stay entries.
-        2. "guests_per_room": use 2 (Double) if not specified.
-        3. "occupancy": Explicitly map 1 guest -> Single, 2 guests -> Double, 3 guests -> Triple.
-        4. "room_type": Default to "Standard" or "Double" if not specified.
-        5. "meal_plan": Default to "BB" (Bed & Breakfast) if not specified.
-        6. "missing_info": If "nights" is absolutely missing for a hotel, add "Nights for [Hotel]" to this list.
+        2. "guests": Extract total party composition. if not mentioned, default to 2 adults, 0 children.
+        3. "occupancy": If 1 adult -> Single, 2 adults -> Double, 3+ adults -> Triple / Extra Adult logic.
+        4. "meal_plan": Only populate if explicitly mentioned (BB, HB, FB). If not mentioned, leave as null.
+        5. "missing_info": If "nights", "hotel_name", "meal_plan", or "currency" is missing, list it in "missing_info".
+        
+        CONTEXT MERGING (VERY IMPORTANT):
+        If a 'CONTEXT' is provided, it contains the conversation history.
+        - Your result MUST combine 'CONTEXT' and 'NEW QUERY'.
+        - If 'NEW QUERY' provides a meal plan (e.g. "BB"), and 'CONTEXT' has the hotel/dates, the final JSON must have the hotel/dates FROM CONTEXT and the meal plan FROM NEW QUERY.
+        - Do not drop information from CONTEXT unless NEW QUERY explicitly changes it.
         """
 
-    def extract(self, user_query: str) -> Dict:
+    def extract(self, user_query: str, context: str = None) -> Dict:
         """
-        Extract structured itinerary from text.
+        Extract structured itinerary from text, optionally merging with context.
         """
+        full_query = user_query
+        if context:
+            full_query = f"CONTEXT: {context}\nNEW QUERY: {user_query}"
+
         prompt = f"""
-        User Query: "{user_query}"
-        
-        Extract the itinerary details as JSON.
+        Extract the itinerary details as JSON from the following input:
+        "{full_query}"
         """
         
         try:

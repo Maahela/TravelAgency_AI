@@ -148,7 +148,18 @@ def answer_query_with_llm(query: str, context: str) -> str:
     """
     Answer a query using LLM with provided context (RAG pattern).
     """
-    system_message = "You are a helpful travel agency assistant. Answer the user's question based ONLY on the provided hotel rate data. If the answer is not in the context, say you don't know."
+    system_message = """
+    You are a professional travel agency assistant. Answer the user's question using ONLY the provided hotel rate data.
+    
+    CRITICAL FORMATTING RULES:
+    1. **Structured Layout**: Use Markdown headers (###) and bold text for clarity.
+    2. **Group by Room**: Group rates by Room Type first.
+    3. **Markdown Tables**: For each room type, use a table to show:
+       | Rate (Standardized) | Meal Plan | Season | Notes |
+       | :--- | :--- | :--- | :--- |
+    4. **Supplemental Info**: If 'ADDITIONAL CHARGES' are in context, create a separate section "📋 Related Information & Charges" for supplements, extra beds, etc.
+    5. **Tone**: Be helpful and concise.
+    """
     prompt = f"Context Data:\n{context}\n\nUser Question: {query}\n\nAnswer:"
     
     return generate_llm_response(prompt, system_message, temperature=0.1)
@@ -163,8 +174,13 @@ def extract_search_params_with_llm(query: str) -> Dict:
     
     system_message = """
     You are a search query parser. Extract search parameters from the user's query into a JSON object.
-    Fields allowed: 'hotel_name' (string), 'max_rate' (number).
-    Do NOT extract 'room_type' or descriptions - we want to retrieve all rooms for the hotel.
+    Fields allowed: 
+    - 'hotel_name' (string): Name of the hotel.
+    - 'max_rate' (number): Maximum price per night.
+    - 'occupancy' (string): Look for "Single", "Double", "Triple", "Extra Adult", "Extra Child".
+    - 'date_range' (array of 2 strings): Extract year-month-day (e.g., ["2026-01-01", "2026-01-31"]).
+    
+    Do NOT extract descriptions - we want to retrieve all matching rooms for the hotel.
     Return ONLY valid JSON.
     """
     prompt = f"Query: {query}\n\nJSON:"

@@ -144,6 +144,25 @@ class HotelManager:
         logger.info(f"Created hotel '{name}' with ID {hotel_id}")
         return hotel_id
 
+    def get_hotel_emails(self, hotel_name: str) -> Dict[str, str]:
+        """Get all active emails for a hotel by name."""
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        try:
+            # Join with hotels table to find by name
+            cursor.execute("""
+                SELECT e.email, e.purpose 
+                FROM hotel_emails e
+                JOIN hotels h ON e.hotel_id = h.id
+                WHERE h.name LIKE ? AND e.is_active = 1
+            """, (f"%{hotel_name}%",))
+            
+            rows = cursor.fetchall()
+            return {row['purpose']: row['email'] for row in rows}
+        finally:
+            conn.close()
+
     def upsert_hotel_email(self, hotel_id: int, email: str, purpose: str, source_type: str, confidence: float):
         """Insert or Update email record for a hotel."""
         conn = self._get_conn()

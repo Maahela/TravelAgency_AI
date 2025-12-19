@@ -15,6 +15,7 @@ from database.query_rates import search_rates, format_rates_for_llm
 from llm.llm_client import answer_query_with_llm
 from utils.logger import get_logger
 from workflow.hotel_discovery_agent import HotelDiscoveryAgent
+from database.hotel_management import HotelManager
 import re
 
 logger = get_logger(__name__)
@@ -34,8 +35,9 @@ class ChatInterface:
             db_path = DB_PATH
         
         self.db_path = db_path
-        self.conversation_history = []  # Track conversation context
         self.last_hotel = None  # Remember last mentioned hotel
+        self.current_flow = None  # Tracks active flow (e.g., 'budget')
+        self.flow_context = {}    # Stores context for the active flow
         logger.info("ChatInterface initialized with conversation memory")
     
     
@@ -105,46 +107,50 @@ class ChatInterface:
         
         # Try to find email in database
         manager = HotelManager()
-        hotel_id = manager.get_or_create_hotel(hotel_name)
+        emails = manager.get_hotel_emails(hotel_name)
         
-        # We need a method to get the best email. For now, let's mock or use a direct query.
-        # Ideally HotelManager should have get_best_email(hotel_id)
-        # Using a raw query for now or assuming the agent can find it.
-        # Let's use discovery agent if not found?
+        # Prioritize 'reservations' then 'sales' then general
+        hotel_email = None
+        for purpose in ['reservations', 'sales', 'general']:
+            if purpose in emails:
+                hotel_email = emails[purpose]
+                break
         
-        # For simplicity in this iteration:
-        # 1. Try to discover/get email
-        agent = HotelDiscoveryAgent()
-        # "Quick" lookup or use what's in DB. The agent.run does both usually.
-        # But agent.run scrapes. We want DB lookup first.
-        # Let's assume we need to prompt user if missing.
-        
-        # Simulating email lookup found "reservations@<hotel>.com" or ask user
-        # For this feature to be robust, we really need the email.
-        # Let's assume a placeholder if not found or trigger discovery.
-        
-        # Using a dummy email for the draft if lookup fails, or try to discovery.
-        hotel_email = f"reservations@example.com" # TODO: Real DB lookup
-        
+        if not hotel_email and emails:
+            hotel_email = list(emails.values())[0]
+
+        if not hotel_email:
+             # TRY PROACTIVE DISCOVERY
+             logger.info(f"No email found for {hotel_name}. Triggering proactive discovery...")
+             agent = HotelDiscoveryAgent()
+             discovery_result = agent.run(hotel_name)
+             
+             if discovery_result.get('run_status') == 'success' and discovery_result.get('emails'):
+                 # Prioritize 'reservations' then 'sales' then general
+                 new_emails = {e['purpose']: e['email'] for e in discovery_result['emails']}
+                 for purpose in ['reservations', 'sales', 'general']:
+                     if purpose in new_emails:
+                         hotel_email = new_emails[purpose]
+                         break
+                 if not hotel_email and discovery_result['emails']:
+                     hotel_email = discovery_result['emails'][0]['email']
+                 logger.info(f"Proactive discovery found email for {hotel_name}: {hotel_email}")
+
+        if not hotel_email:
+             # Fallback to general search logic or placeholder
+             hotel_email = f"reservations@{hotel_name.lower().replace(' ', '')}.com"
+             logger.warning(f"No email found for {hotel_name}, using placeholder: {hotel_email}")
+
         # Initialize sender
-        # We need a token. Authentication should ideally be handled globally or refreshed.
-        # For manual draft creation, we might need to re-auth or use stored token.
-        # Assuming OutlookSender handles auth internally if passed None? No, it needs token.
-        # We need to call OutlookReader.authenticate() logic or similar.
-        
-        # HACK: Using a placeholder token check. This requires valid auth in production.
-        # In a real run, main.py does auth. Chat interface might need its own auth flow or shared cache.
-        # OutlookSender currently requires a token in __init__.
-        # Let's try to get a token using OutlookReader's method if possible, or fail gracefully.
         from email_handler.outlook_reader import OutlookReader
         reader = OutlookReader()
         if reader.authenticate():
              sender = OutlookSender(access_token=reader.access_token)
         else:
-             return "❌ Authentication failed. Cannot check Outlook."
+             return "❌ Authentication failed. Please check your credentials."
              
         # Generate draft
-        details = {'season': 'Winter 2025/2026'} # Default or extract from query
+        details = {'season': 'Winter 2025/2026'} 
         
         try:
             draft_content = sender.generate_rate_request_email(hotel_name, hotel_email, details)
@@ -155,12 +161,51 @@ class ChatInterface:
             )
             
             if draft_id:
-                return f"✅ Rate request draft created for **{hotel_name}**. Check your Outlook Drafts folder."
+                return f"✅ Rate request draft created for **{hotel_name}** to **{hotel_email}**. Check your Outlook Drafts folder."
             else:
                 return f"❌ Failed to create draft for {hotel_name}."
         except Exception as e:
             logger.error(f"Error creating rate request: {e}")
             return f"❌ Error creating draft: {str(e)}"
+
+    def _handle_discovery(self, user_query: str) -> str:
+        """
+        Connect to HotelDiscoveryAgent for email/contact search.
+        """
+        # Extract hotel name
+        pattern = r'(?:find|get|search|discover).*?email.*?(?:for|of)\s+(.+?)(?:\?|$)'
+        match = re.search(pattern, user_query, re.IGNORECASE)
+        
+        if not match:
+            # Try fallback if hotel name is simple at end
+            pattern_alt = r'(?:find|discover)\s+(.+?)\s+email'
+            match = re.search(pattern_alt, user_query, re.IGNORECASE)
+            
+        if not match:
+            return "Please tell me which hotel to search for. Example: 'Find email for Galle Face Hotel'"
+            
+        hotel_name = match.group(1).strip()
+        manager = HotelManager()
+        
+        # Check DB first
+        emails = manager.get_hotel_emails(hotel_name)
+        if emails:
+            e_str = ", ".join([f"{v} ({k})" for k, v in emails.items()])
+            return f"🔍 I found these contacts in our database for **{hotel_name}**: {e_str}"
+            
+        # Trigger live discovery
+        agent = HotelDiscoveryAgent()
+        print(f"\n🕷️ Triggering live discovery for {hotel_name}...")
+        result = agent.run(hotel_name)
+        
+        if result.get('run_status') == 'success' and result.get('emails'):
+            e_list = [f"{e['email']} ({e['purpose']})" for e in result['emails']]
+            e_str = ", ".join(e_list)
+            return f"✅ Discovery successful! I found these emails for **{hotel_name}**: {e_str}. They have been saved to the database."
+        elif result.get('run_status') == 'sources_not_found':
+            return f"❌ I couldn't find any credible contact sources for **{hotel_name}** online. Please check the website manually."
+        else:
+            return f"❌ Discovery failed for **{hotel_name}**. Reason: {result.get('error', 'Unknown error')}"
 
     def _handle_workflow_trigger(self, user_query: str) -> str:
         """
@@ -194,17 +239,44 @@ class ChatInterface:
         
         # 1. Extract params
         extractor = ItineraryExtractor()
-        data = extractor.extract(user_query)
         
-        if data.get("missing_info"):
-            return f"To calculate the budget, I need: {', '.join(data['missing_info'])}. Please provide these details."
+        # If we have existing context, merge it
+        if self.current_flow == 'budget' and self.flow_context:
+            extracted_data = extractor.extract(user_query, context=self.flow_context.get('last_query'))
+            # Merge context data into newly extracted data if missing
+            for key in ['stays', 'currency', 'meal_plan', 'guests', 'child_ages']:
+                 if not extracted_data.get(key) and self.flow_context.get(key):
+                     extracted_data[key] = self.flow_context[key]
+        else:
+            extracted_data = extractor.extract(user_query)
+
+        if extracted_data.get("missing_info") and not extracted_data.get("stays"):
+            # If we already have stays in context, try to merge again or rely on context
+            if self.current_flow == 'budget' and self.flow_context.get('stays'):
+                 extracted_data['stays'] = self.flow_context['stays']
+                 # Re-check missing info now that stays are merged
+                 # Actually, better to just let it fall through to calculation
+            else:
+                self.current_flow = 'budget'
+                self.flow_context = extracted_data
+                self.flow_context['last_query'] = user_query
+                logger.info(f"Setting flow to 'budget'. Missing: {extracted_data['missing_info']}")
+                return f"To calculate the budget, I need: {', '.join(extracted_data['missing_info'])}. Please provide these details."
             
-        if not data.get("stays"):
+        if not extracted_data.get("stays"):
+            logger.warning(f"No stays found in budget calculation for: {user_query}")
+            self.current_flow = None
+            self.flow_context = {}
             return "I couldn't identify any hotels or nights in your request. Please format like: '3 nights at Hotel A, 2 nights at Hotel B'."
             
         # 2. Calculate
         calculator = BudgetCalculator(db_path=self.db_path)
-        result = calculator.calculate_trip_cost(data)
+        # Use calculate_trip_cost instead of data = calculator...
+        result = calculator.calculate_trip_cost(extracted_data)
+        
+        # Reset flow on success
+        self.current_flow = None
+        self.flow_context = {}
         
         # 3. Format Response (Strict Format)
         output = []
@@ -249,11 +321,23 @@ class ChatInterface:
         logger.info(f"Processing query: {user_query}")
         query_lower = user_query.lower()
 
-        # 0. Budget / Cost Calculation
+        # 0. State-based routing (Priority)
+        logger.debug(f"Current flow: {self.current_flow}")
+        if self.current_flow == 'budget':
+            # Check if this query is trying to cancel or start something else
+            if any(w in query_lower for w in ['cancel', 'stop', 'reset', 'exit']):
+                self.current_flow = None
+                self.flow_context = {}
+                return "OK, I've cleared the current budget request. How else can I help?"
+            
+            # Follow-up info for budget
+            return self._handle_budget_calculation(user_query)
+
+        # 1. Budget / Cost Calculation
         if any(w in query_lower for w in ['budget', 'calculate', 'cost', 'quote', 'price for trip']):
             return self._handle_budget_calculation(user_query)
         
-        # 1. Workflow Trigger
+        # 2. Workflow Trigger
         if any(phrase in query_lower for phrase in ['check emails', 'process inbox', 'check for new emails', 'run workflow']):
              return self._handle_workflow_trigger(user_query)
 
@@ -299,6 +383,8 @@ class ChatInterface:
         # Search DB
         rates = search_rates(
             hotel_name=params.get('hotel_name'),
+            occupancy=params.get('occupancy'),
+            date_range=params.get('date_range'),
             max_rate=params.get('max_rate'),
             db_path=self.db_path
         )

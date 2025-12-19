@@ -43,6 +43,7 @@ class BudgetCalculator:
         """
         stays = itinerary.get("stays", [])
         currency = itinerary.get("currency", "USD")
+        global_guests = itinerary.get("guests", {"adults": 2, "children": 0, "child_ages": []})
         
         hotel_results = []
         total_trip_cost = 0.0
@@ -51,104 +52,98 @@ class BudgetCalculator:
             hotel_name = stay.get("hotel_name")
             nights = int(stay.get("nights", 1))
             rooms = int(stay.get("rooms", 1))
-            guests = int(stay.get("guests_per_room", 2)) * rooms
             room_type = stay.get("room_type", "Standard")
             meal_plan = stay.get("meal_plan", "BB")
-            occupancy = stay.get("occupancy") # Single/Double/Triple
+            occupancy = stay.get("occupancy") 
             
-            # 1. Get Rate
-            # We fetch all rates for this hotel to find best match
+            # Use global guests if not specified in stay
+            stay_guests = stay.get("guests", global_guests)
+            adults = stay_guests.get("adults", 2)
+            children = stay_guests.get("children", 0)
+            child_ages = stay_guests.get("child_ages", [])
+            
+            # 1. Get Rates and Price Items
             rates = search_rates(hotel_name=hotel_name, db_path=self.db_path)
-            
-            # Find matching rate logic (Seasonality & Occupancy Aware)
-            check_in = stay.get('check_in') # YYYY-MM-DD
-            selected_rate = None
-            
-            # Helper to check date overlap
-            def is_in_season(rate, check_in_date_str):
-                if not rate.get('season_start_date') or not check_in_date_str:
-                    return True # Assume distinct if no dates
-                try:
-                    s_start = str(rate['season_start_date'])[:10]
-                    s_end = str(rate['season_end_date'])[:10]
-                    c_in = str(check_in_date_str)[:10]
-                    return s_start <= c_in <= s_end
-                except:
-                    return True
-
-            candidates = []
-            for r in rates:
-                # 1. Room Type Match (case-insensitive)
-                r_type = str(r.get('room_type', '')).lower()
-                r_occ = str(r.get('occupancy', r.get('Occupancy', ''))).lower()
-                
-                if room_type.lower() in r_type:
-                    candidates.append(r)
-            
-            # 1.5 Occupancy Refinement
-            if occupancy and candidates:
-                occ_matches = [r for r in candidates if occupancy.lower() in str(r.get('occupancy', r.get('Occupancy', ''))).lower()]
-                if occ_matches:
-                    candidates = occ_matches
-            
-            if not candidates:
-                 candidates = rates # Fallback to all if no match
+            price_items = search_price_items(hotel_name=hotel_name, db_path=self.db_path)
             
             result = HotelResult(hotel_name=hotel_name, nights=nights, room_cost=None)
-
-            # 2. Date Match (Seasonality)
-            date_matches = [r for r in candidates if is_in_season(r, check_in)]
             
-            if date_matches:
-                selected_rate = date_matches[0] # Pick best date match
-            elif check_in:
-                # STRICT MODE: If we have a date, but no rate for that date -> FAIL
-                selected_rate = None
-                result.status = "NO_SEASONAL_RATE"
-                result.notes.append(f"No rate found covering date {check_in}")
-            elif candidates:
-                 # No date provided, so provide generic/first available rate with warning
-                selected_rate = candidates[0] 
-                result.notes.append("Generic rate used (no date specified)")
-            
-            if selected_rate:
-                # Base Rate Math
-                rate_val = float(selected_rate.get('rate_per_night', 0) or 0)
-                rate_currency = selected_rate.get('currency', 'USD')
+            # 2. Logic for Cross-Seasonal Stays
+            # Split stay into individual nights and find rate for each
+            from datetime import datetime, timedelta
+            try:
+                check_in = datetime.strptime(stay['check_in'], "%Y-%m-%d")
+                total_base_cost = 0.0
+                calc_details = []
                 
-                # Check currency mismatch (simplified: ignore or note)
-                if rate_currency != currency:
-                    result.notes.append(f"Rate in {rate_currency}, unconverted.")
+                for i in range(nights):
+                    current_night = (check_in + timedelta(days=i)).strftime("%Y-%m-%d")
+                    # Find rate for this specific night
+                    match = self._find_best_rate(rates, room_type, occupancy, current_night)
+                    if match:
+                        rate_val = float(match.get('rate_per_night', 0) or 0)
+                        total_base_cost += (rate_val * rooms)
+                        # Track for calc string (simplified)
+                        if not calc_details or calc_details[-1][0] != rate_val:
+                            calc_details.append([rate_val, 1])
+                        else:
+                            calc_details[-1][1] += 1
+                    else:
+                        result.status = "PARTIAL"
+                        result.notes.append(f"No rate found for {current_night}")
                 
-                cost_val = rate_val * rooms * nights
-                date_info = f" [{stay.get('check_in')} to {stay.get('check_out')}]" if stay.get('check_in') else ""
-                
-                result.room_cost = CostBreakdown(
-                    description=f"{room_type} ({meal_plan}){date_info}",
-                    calculation_str=f"{rate_currency} {rate_val} x {rooms} room(s) x {nights} night(s)",
-                    amount=cost_val
-                )
-                
-                result.subtotal += cost_val
-                
-                # Meal Supplements (Placeholder logic - requires PriceItems table integration)
-                # If we had a supplement for "HB" -> look it up.
-                # For now, assuming rate includes the base meal plan matched.
-                # If user asked for HB but rate is BB, we'd add supplement.
-                
-            else:
+                if result.status != "PARTIAL":
+                    calc_str = " + ".join([f"({r} x {rooms} room x {n} nights)" for r, n in calc_details])
+                    result.room_cost = CostBreakdown(
+                        description=f"{room_type} ({meal_plan})",
+                        calculation_str=calc_str,
+                        amount=total_base_cost
+                    )
+                    result.subtotal = total_base_cost
+                else:
+                    result.status = "NO_SEASONAL_RATE"
+            except Exception as e:
+                logger.error(f"Error in date math: {e}")
                 result.status = "MISSING_RATE"
-                result.room_cost = CostBreakdown(
-                    description="Rate not found",
-                    calculation_str="N/A",
-                    amount=0.0
-                )
-                result.notes.append("Could not find rate for this hotel.")
-            
-            # Valid subtotal
-            if result.status == "OK":
+
+            # 3. Apply Supplements (Price Items)
+            if result.status == "OK" or result.status == "PARTIAL":
+                # Meal Upgrades (if not BB)
+                if meal_plan.upper() != "BB":
+                    # Look for meal_plan_supplement
+                    supp = self._find_price_item(price_items, "meal_plan_supplement", meal_plan)
+                    if supp:
+                        s_price = float(supp.get('price', 0))
+                        total_supp = s_price * (adults + children) * nights
+                        result.subtotal += total_supp
+                        result.meal_cost = CostBreakdown(
+                            description=f"{meal_plan} Supplement",
+                            calculation_str=f"{s_price} x {adults+children} guests x {nights} nights",
+                            amount=total_supp
+                        )
+
+                # Extra Person / Bed logic (Simplified)
+                # If occupancy is Triple but rate is Double, add extra bed
+                if occupancy == "Triple":
+                     extra_bed = self._find_price_item(price_items, "extra_bed_charge")
+                     if extra_bed:
+                         eb_price = float(extra_bed.get('price', 0))
+                         eb_total = eb_price * rooms * nights
+                         result.subtotal += eb_total
+                         result.notes.append(f"Added Extra Bed: {currency} {eb_total}")
+
+                # Child Rates
+                for age in child_ages:
+                    child_rate = self._find_price_item(price_items, "child_rate", age=age)
+                    if child_rate:
+                        c_price = float(child_rate.get('price', 0))
+                        c_total = c_price * nights
+                        result.subtotal += c_total
+                        result.notes.append(f"Child ({age}y): {currency} {c_total}")
+
+            if result.status in ["OK", "PARTIAL"]:
                 total_trip_cost += result.subtotal
-                
+            
             hotel_results.append(result)
             
         return CalculationResult(
@@ -156,3 +151,32 @@ class BudgetCalculator:
             currency=currency,
             hotel_results=hotel_results
         )
+
+    def _find_best_rate(self, rates, room_type, occupancy, date_str):
+        """Find best matching rate for a specific date."""
+        candidates = [r for r in rates if room_type.lower() in str(r.get('room_type', '')).lower()]
+        if occupancy:
+            occ_matches = [r for r in candidates if occupancy.lower() in str(r.get('occupancy', r.get('Occupancy', ''))).lower()]
+            if occ_matches: candidates = occ_matches
+        
+        for r in candidates:
+            s_start = str(r.get('season_start_date', ''))[:10]
+            s_end = str(r.get('season_end_date', ''))[:10]
+            if s_start <= date_str <= s_end:
+                return r
+        return None
+
+    def _find_price_item(self, items, category, sub_type=None, age=None):
+        """Find specific supplement item."""
+        for it in items:
+            if it.get('category') == category:
+                if sub_type and sub_type.lower() not in str(it.get('description', '')).lower(): continue
+                if age is not None:
+                    # check age range "5-12"
+                    age_range = str(it.get('age_range', ''))
+                    if "-" in age_range:
+                         low, high = map(int, age_range.split("-"))
+                         if low <= age <= high: return it
+                    else: return it # fallback
+                return it
+        return None
