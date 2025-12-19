@@ -98,12 +98,20 @@ async def get_stats():
             today = datetime.now().strftime("%Y-%m-%d")
             # Airtable formula for createdTime is tricky without a field.
             # We will use valid rates count as the primary metric.
-            rates_count = len(airtable.rates_table.all())
-            price_items_count = len(airtable.price_items_table.all())
-            
-            # Trends (Simulator for now as we lack history DB)
-            # In a real app, we'd query: count(today) / count(yesterday)
-            
+            # Calculate unique hotels from rates as "Live Hotels" source of truth
+            try: 
+                # This iterates all rates, which we already fetched via .all() under the hood in len()
+                # Optimized way:
+                all_rates = airtable.rates_table.all()
+                rates_count = len(all_rates)
+                unique_hotels = set()
+                for r in all_rates:
+                    if 'fields' in r and 'Hotel Name' in r['fields']:
+                        unique_hotels.add(r['fields']['Hotel Name'])
+                live_hotels_count = len(unique_hotels)
+            except:
+                live_hotels_count = 0
+
             return {
                 "total_rates": rates_count,
                 "rates_trend": "+5%", # Placeholder transformed to backend-served
@@ -111,7 +119,7 @@ async def get_stats():
                 "price_items_trend": "+12%",
                 "total_logs": processing_logs_count,
                 "logs_trend": "+8%",
-                "live_hotels": len(airtable.hotels_table.all()) if hasattr(airtable, 'hotels_table') else 0
+                "live_hotels": live_hotels_count
             }
         except Exception as inner_e:
             logger.error(f"Error calculating stats: {inner_e}")
