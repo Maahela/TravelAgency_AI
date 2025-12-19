@@ -76,6 +76,12 @@ LOG_FILE = LOGS_DIR / "app.log"
 SUPPORTED_PDF_EXTENSIONS = [".pdf"]
 SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".tiff", ".bmp"]
 
+# File Storage Settings
+MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "50"))  # Maximum file size in MB
+FILE_RETENTION_DAYS = int(os.getenv("FILE_RETENTION_DAYS", "30"))  # Days to keep files before archiving
+ARCHIVE_DIR = Path(os.getenv("ARCHIVE_DIR", "./data/archive"))  # Archive directory
+ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+
 # Microsoft Graph API Scopes
 # Microsoft Graph API Scopes
 GRAPH_SCOPES = [
