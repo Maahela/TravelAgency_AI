@@ -43,6 +43,51 @@ def search_rates(
     logger.info(f"Searching rates: hotel={hotel_name}, room={room_type}")
     
     try:
+        # 1. Try Airtable first
+        from database.airtable_client import AirtableClient
+        try:
+            airtable = AirtableClient()
+            if airtable.is_connected():
+                # Build formula
+                # Example: AND({Hotel Name}="X", {Price}<=Y)
+                formulas = []
+                if hotel_name:
+                    formulas.append(f"{{Hotel Name}}='{hotel_name}'")
+                
+                # Note: Price query in Airtable string field is hard, skipping simple max_rate for now in Airtable
+                # or fetching all for hotel and filtering in python.
+                
+                formula = f"AND({', '.join(formulas)})" if formulas else None
+                
+                records = airtable.rates_table.all(formula=formula)
+                if records:
+                    logger.info(f"Found {len(records)} rates in Airtable")
+                    # Map back to standardized format
+                    results = []
+                    for r in records:
+                        f = r['fields']
+                        # Apply max_rate filter in python since Price is text/number mixed
+                        price = float(str(f.get('Price', 0)).replace(',', '').replace('USD', '').strip() or 0)
+                        
+                        if max_rate and price > max_rate:
+                            continue
+                            
+                        results.append({
+                            'hotel_name': f.get('Hotel Name'),
+                            'room_type': f.get('Room Type'),
+                            'rate_per_night': price, # Aligning with SQLite's 'rate_per_night'
+                            'currency': f.get('Currency', 'USD'),
+                            'meal_plan': f.get('Meal Plan'),
+                            'source': 'Airtable',
+                            'season_start_date': f.get('Season Start Date'), # Assuming these fields exist in Airtable
+                            'season_end_date': f.get('Season End Date'),
+                            'conditions': f.get('Conditions')
+                        })
+                    return results
+        except Exception as e:
+            logger.warning(f"Airtable query failed, falling back to SQLite: {e}")
+
+        # 2. Fallback to SQLite (Legacy)
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
         

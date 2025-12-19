@@ -29,6 +29,17 @@ def insert_rate(rate_data: Dict, db_path: Path) -> bool:
     """
     logger.info(f"Inserting rate for {rate_data.get('hotel_name', 'Unknown')}")
     
+    # 1. Sync to Airtable
+    from database.airtable_client import AirtableClient
+    try:
+        airtable = AirtableClient()
+        if airtable.is_connected():
+            airtable.insert_rate(rate_data)
+    except Exception as e:
+        logger.warning(f"Failed to sync rate to Airtable: {e}")
+        
+    # 2. Insert to SQLite (keep legacy logic as backup for now)
+    
     try:
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
@@ -70,27 +81,23 @@ def insert_rate(rate_data: Dict, db_path: Path) -> bool:
 def insert_rates_batch(rates: List[Dict], db_path: Path) -> int:
     """
     Insert multiple rate records in a single transaction.
-    
-    Args:
-        rates: List of rate dictionaries
-        db_path: Path to SQLite database file
-    
-    Returns:
-        Number of successfully inserted records
-    
-    TODO:
-        - Implement batch insert for better performance
-        - Add rollback on partial failure
-        - Return list of failed items
     """
-    logger.info(f"Batch inserting {len(rates)} rates")
+    # Also try Airtable batch if available
+    from database.airtable_client import AirtableClient
+    airtable = AirtableClient()
+    
+    if airtable.is_connected():
+        logger.info("Syncing batch to Airtable...")
+        for rate in rates:
+            airtable.insert_rate(rate)
+            
+    logger.info(f"Batch inserting {len(rates)} rates locally")
     
     success_count = 0
     for rate in rates:
         if insert_rate(rate, db_path):
             success_count += 1
     
-    logger.info(f"Successfully inserted {success_count}/{len(rates)} rates")
     return success_count
 
 
@@ -102,22 +109,18 @@ def log_processing_status(
     db_path: Path = None
 ) -> bool:
     """
-    Log file processing status to database.
-    
-    Args:
-        email_id: Email identifier
-        filename: Name of processed file
-        status: Processing status (success, failed, pending)
-        error_message: Error message if failed
-        db_path: Path to database
-    
-    Returns:
-        True if logged successfully
-    
-    TODO:
-        - Add more detailed status tracking
-        - Implement retry mechanism
+    Log file processing status to database and Airtable.
     """
+    # 1. Log to Airtable
+    from database.airtable_client import AirtableClient
+    try:
+        airtable = AirtableClient()
+        if airtable.is_connected():
+            airtable.log_processing(email_id, filename, status, error_message)
+    except Exception as e:
+        logger.warning(f"Failed to log to Airtable (non-critical): {e}")
+
+    # 2. Log to SQLite
     if db_path is None:
         from config import DB_PATH
         db_path = DB_PATH

@@ -1,0 +1,19 @@
+### 💰 Trip Budget Calculation
+
+**Hotel A** (2 Nights)
+------------------------------
+**Room Rate**:
+- Type: Standard (BB)
+- Calculation: `USD 100.0 x 1 room(s) x 2 night(s) = USD 200.00`
+**Subtotal**: USD 200.00
+
+**Hotel B** (3 Nights)
+------------------------------
+**Room Rate**:
+- Type: Suite (BB)
+- Calculation: `USD 200.0 x 1 room(s) x 3 night(s) = USD 600.00`
+**Subtotal**: USD 600.00
+
+==============================
+**TOTAL TRIP COST**: USD 800.00
+==============================

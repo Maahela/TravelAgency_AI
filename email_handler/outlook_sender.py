@@ -162,24 +162,73 @@ class OutlookSender:
         
         Returns:
             Dictionary with 'subject' and 'body' keys
-        
-        TODO:
-            - Implement email template with professional formatting
-            - Add personalization based on hotel details
-            - Support multiple languages
-            - Include agency branding/signature
         """
-        from llm.llm_client import generate_email_with_llm
-        
         logger.info(f"Generating rate request content for {hotel_name}...")
         
-        context = {
-            'hotel_name': hotel_name,
-            'target_email': hotel_email,
-            'request_details': requested_details
-        }
+        # Extract dynamic details from requested_details
+        season_info = requested_details.get('season', 'the relevant season(s)')
         
-        return generate_email_with_llm('rate_request', context)
+        # =========================================================================
+        # EMAIL TEMPLATE - EDIT HERE to customize the rate request email
+        # =========================================================================
+        
+        email_subject = f"Contract Rate Request - {hotel_name} - JAK Travels"
+        
+        email_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+            <div>
+                <p>Dear Reservations / Sales Team,</p>
+                
+                <p>I hope this email finds you well.</p>
+                
+                <p>My name is <strong>Maahela Weerasinghe</strong>, representing <strong>JAK Travels</strong>. We handle FIT and small group travel and are currently updating our hotel database in preparation for upcoming bookings.</p>
+                
+                <p>We would like to kindly request your <strong>contracted travel agent rates</strong> for <strong>{hotel_name}</strong> for {season_info}.</p>
+                
+                <p>If possible, could you please share:</p>
+                
+                <ul>
+                    <li>Nett contracted rates (BB and other meal plans, if applicable)</li>
+                    <li>Validity periods and seasonal breakdowns</li>
+                    <li>Room categories and maximum occupancies</li>
+                    <li>Supplements (HB / FB, extra person, extra bed, child policies)</li>
+                    <li>Any special offers or promotions available to agents</li>
+                    <li>Blackout dates, minimum stay requirements, and cancellation policies</li>
+                </ul>
+                
+                <p>A <strong>rate sheet or contract document (PDF)</strong> would be ideal.</p>
+                
+                <p>Our details are below for your reference:</p>
+                
+                <p>
+                    <strong>Agency Name:</strong> JAK Travels<br>
+                    <strong>Contact Person:</strong> Maahela Weerasinghe<br>
+                    <strong>Phone / WhatsApp:</strong> REDACTED_PHONE<br>
+                    <strong>Email:</strong> <a href="mailto:MaahelaWeerasinghe@JAKTravels.onmicrosoft.com">MaahelaWeerasinghe@JAKTravels.onmicrosoft.com</a>
+                </p>
+                
+                <p>We look forward to the possibility of working together and including your property in our itineraries.</p>
+                
+                <p>Thank you for your time and assistance.</p>
+                
+                <p>
+                    Kind regards,<br>
+                    <strong>Maahela Weerasinghe</strong><br>
+                    JAK Travels<br>
+                    📞 REDACTED_PHONE<br>
+                    ✉️ <a href="mailto:MaahelaWeerasinghe@JAKTravels.onmicrosoft.com">MaahelaWeerasinghe@JAKTravels.onmicrosoft.com</a>
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        # =========================================================================
+        
+        return {
+            'subject': email_subject,
+            'body': email_body
+        }
     
     def generate_client_quote_email(
         self,
@@ -197,27 +246,94 @@ class OutlookSender:
         
         Returns:
             Dictionary with 'subject' and 'body' keys
-        
-        TODO:
-            - Implement professional quote template
-            - Format rate data in readable table/list
-            - Add terms and conditions
-            - Include booking instructions
-            - Add agency contact information
         """
-        logger.info(f"TODO: Generate client quote email for {client_name}")
+        logger.info(f"Generating client quote email for {client_name}")
         
-        subject = f"Hotel Quote - {rate_data.get('hotel_name', 'Your Request')}"
-        body = """
-        Dear {client_name},
+        hotel_name = rate_data.get('hotel_name', 'Requested Hotel')
         
-        [TODO: Add professional quote template with rate details]
+        # Format rates into an HTML table rows
+        # Expecting rate_data['rates'] to be a list of dicts or similar structure
+        # If it's a simple dict of 'Room Type': 'Price', handle that too
+        rates_html = ""
+        rates = rate_data.get('rates', [])
         
-        Best regards,
-        [Your Agency Name]
+        if isinstance(rates, list):
+            for rate in rates:
+                # Adjust keys based on your actual rate_data structure
+                room_type = rate.get('room_type', 'Standard Room')
+                meal_plan = rate.get('meal_plan', 'BB')
+                price = rate.get('price', 'N/A')
+                currency = rate.get('currency', 'USD')
+                
+                rates_html += f"""
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{room_type}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{meal_plan}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{currency} {price}</td>
+                </tr>
+                """
+        elif isinstance(rates, dict):
+             for room_type, price in rates.items():
+                rates_html += f"""
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{room_type}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">-</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{price}</td>
+                </tr>
+                """
+
+        # =========================================================================
+        # EMAIL TEMPLATE - EDIT HERE to customize the email sent to clients
+        # =========================================================================
+        
+        email_subject = f"Your Hotel Quote for {hotel_name}"
+        
+        email_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+            <div style="max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #2c3e50;">Hotel Quote Proposal</h2>
+                
+                <p>Dear {client_name},</p>
+                
+                <p>Thank you for your inquiry. We are pleased to provide the following rates for your stay at <strong>{hotel_name}</strong>.</p>
+                
+                <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                    <thead>
+                        <tr style="background-color: #f8f9fa; text-align: left;">
+                            <th style="padding: 10px; border-bottom: 2px solid #ddd;">Room Type</th>
+                            <th style="padding: 10px; border-bottom: 2px solid #ddd;">Meal Plan</th>
+                            <th style="padding: 10px; border-bottom: 2px solid #ddd;">Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rates_html}
+                    </tbody>
+                </table>
+                
+                <div style="background-color: #f0f7ff; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <h4 style="margin-top: 0; color: #0056b3;">Terms & Conditions:</h4>
+                    <ul style="margin-bottom: 0; padding-left: 20px;">
+                        <li>Rates are subject to availability at the time of booking.</li>
+                        <li>Prices include all applicable taxes and service charges.</li>
+                        <li>Cancellation policy needs to be confirmed upon booking.</li>
+                    </ul>
+                </div>
+                
+                <p>Please let us know if you would like to proceed with this booking or if you have any questions.</p>
+                
+                <p style="margin-top: 30px;">
+                    Best regards,<br>
+                    <strong>JAKEmailBot Reservations Team</strong><br>
+                    <a href="mailto:reservations@example.com" style="color: #0056b3;">reservations@example.com</a>
+                </p>
+            </div>
+        </body>
+        </html>
         """
+        # =========================================================================
         
         return {
-            'subject': subject,
-            'body': body
+            'subject': email_subject,
+            'body': email_body
         }
