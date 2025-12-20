@@ -49,14 +49,30 @@ def insert_rate(rate_data: Dict, db_path: Path) -> bool:
         except Exception as e:
             logger.warning(f"Failed to sync rate to Airtable: {e}")
             
-        # 3. Insert to SQLite
+        # 3. Resolve 3NF IDs (Hotel, Room Type, Meal Plan)
+        from database.hotel_management import HotelManager
+        hm = HotelManager(db_path)
+        
+        # Hotel
+        hotel_id = hm.get_or_create_hotel(rate_data.get('hotel_name'))
+        
+        # Room Type
+        room_type_id = None
+        if hotel_id and rate_data.get('room_type'):
+            room_type_id = hm.get_or_create_room_type(hotel_id, rate_data.get('room_type'))
+            
+        # Meal Plan
+        meal_plan_id = hm.get_or_create_meal_plan(rate_data.get('meal_plan'))
+
+        # 4. Insert to SQLite
         cursor.execute("""
             INSERT INTO rates (
                 hotel_name, room_type, occupancy, rate_per_night, currency,
                 meal_plan, season_start_date, season_end_date,
                 conditions, validity_date, source_file, 
-                extracted_at, confidence
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                extracted_at, confidence,
+                room_type_id, meal_plan_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             rate_data.get('hotel_name'),
             rate_data.get('room_type'),
@@ -70,7 +86,9 @@ def insert_rate(rate_data: Dict, db_path: Path) -> bool:
             rate_data.get('validity_date'),
             rate_data.get('source_file'),
             rate_data.get('extracted_at'),
-            rate_data.get('confidence', 1.0)
+            rate_data.get('confidence', 1.0),
+            room_type_id,
+            meal_plan_id
         ))
         
         conn.commit()

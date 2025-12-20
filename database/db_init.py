@@ -159,6 +159,58 @@ def initialize_database(db_path: Path) -> bool:
             ON hotels(name)
         """)
         
+        # ---------------------------------------------------------
+        # 3NF Normalization Tables (Matching Airtable Structure)
+        # ---------------------------------------------------------
+        
+        # Create room_types table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS room_types (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hotel_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (hotel_id) REFERENCES hotels (id),
+                UNIQUE(hotel_id, name)
+            )
+        """)
+        
+        # Create meal_plans table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS meal_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL UNIQUE,  -- e.g., 'BB', 'HB'
+                name TEXT,                  -- e.g., 'Bed & Breakfast'
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Ensure we have common meal plans pre-populated
+        meal_plans = [
+            ('BB', 'Bed & Breakfast'),
+            ('HB', 'Half Board'),
+            ('FB', 'Full Board'),
+            ('AI', 'All Inclusive'),
+            ('RO', 'Room Only')
+        ]
+        cursor.executemany("""
+            INSERT OR IGNORE INTO meal_plans (code, name) VALUES (?, ?)
+        """, meal_plans)
+        
+        # Add Foreign Keys to rates table (Migration)
+        # We add columns if they don't exist
+        cursor.execute("PRAGMA table_info(rates)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'room_type_id' not in columns:
+            cursor.execute("ALTER TABLE rates ADD COLUMN room_type_id INTEGER REFERENCES room_types(id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_rates_room_type ON rates(room_type_id)")
+            
+        if 'meal_plan_id' not in columns:
+            cursor.execute("ALTER TABLE rates ADD COLUMN meal_plan_id INTEGER REFERENCES meal_plans(id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_rates_meal_plan ON rates(meal_plan_id)")
+
+        
         conn.commit()
         conn.close()
         

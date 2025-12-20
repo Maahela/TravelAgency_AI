@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
 """
 Script to list all valid users in the Azure Tenant.
 This helps identify which email addresses the bot allows access to.

@@ -3,6 +3,7 @@ Database query operations for retrieving hotel rate data.
 """
 
 from typing import List, Dict, Optional
+import sqlite3
 from pathlib import Path
 from database.db_init import get_db_connection
 from utils.logger import get_logger
@@ -133,43 +134,61 @@ def search_rates(
 
         # 2. Fallback to SQLite (Legacy)
         conn = get_db_connection(db_path)
+        conn.row_factory = sqlite3.Row # Ensure we get keyed rows
         cursor = conn.cursor()
         
-        query = "SELECT * FROM rates WHERE 1=1"
+        # Enhanced query with JOINs
+        query = """
+            SELECT 
+                r.*, 
+                rt.name as joined_room_type, 
+                mp.name as joined_meal_plan 
+            FROM rates r
+            LEFT JOIN room_types rt ON r.room_type_id = rt.id
+            LEFT JOIN meal_plans mp ON r.meal_plan_id = mp.id
+            WHERE 1=1
+        """
         params = []
         
         if hotel_name:
-            query += " AND hotel_name LIKE ?"
+            query += " AND r.hotel_name LIKE ?"
             params.append(f"%{hotel_name}%")
         
         if room_type:
-            query += " AND room_type LIKE ?"
-            params.append(f"%{room_type}%")
-        
-        if room_type:
-            query += " AND room_type LIKE ?"
-            params.append(f"%{room_type}%")
+            # Check both text column and joined name
+            query += " AND (r.room_type LIKE ? OR rt.name LIKE ?)"
+            params.extend([f"%{room_type}%", f"%{room_type}%"])
         
         if occupancy:
             # Flexible occupancy: match field OR room_type containing the word
-            query += " AND (occupancy = ? OR room_type LIKE ? OR occupancy IS NULL)"
-            params.extend([occupancy, f"%{occupancy}%"])
+            query += " AND (r.occupancy = ? OR r.room_type LIKE ? OR rt.name LIKE ? OR r.occupancy IS NULL)"
+            params.extend([occupancy, f"%{occupancy}%", f"%{occupancy}%"])
         
         if date_range:
             start_date, end_date = date_range
-            query += " AND season_start_date <= ? AND season_end_date >= ?"
+            query += " AND r.season_start_date <= ? AND r.season_end_date >= ?"
             params.extend([end_date, start_date])
         
         if max_rate:
-            query += " AND rate_per_night <= ?"
+            query += " AND r.rate_per_night <= ?"
             params.append(max_rate)
         
-        query += " ORDER BY hotel_name, rate_per_night"
+        query += " ORDER BY r.hotel_name, r.rate_per_night"
         
         cursor.execute(query, params)
         rows = cursor.fetchall()
         
-        results = [dict(row) for row in rows]
+        # Normalize results (prefer joined names)
+        results = []
+        for row in rows:
+            d = dict(row)
+            # Override with joined names if present (for 3NF consistency)
+            if d.get('joined_room_type'):
+                d['room_type'] = d['joined_room_type']
+            if d.get('joined_meal_plan'):
+                d['meal_plan'] = d['joined_meal_plan']
+            results.append(d)
+
         conn.close()
         
         logger.info(f"Found {len(results)} matching rates")

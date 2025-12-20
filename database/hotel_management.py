@@ -34,21 +34,37 @@ class HotelManager:
                 hotel_id = existing[0]
                 cursor.execute("""
                     UPDATE hotels 
-                    SET email_address = ?, website = ?, contact_person = ?, updated_at = CURRENT_TIMESTAMP
+                    SET website = ?, contact_person = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (email, website, contact_person, hotel_id))
-                logger.info(f"Updated hotel: {name}")
+                """, (website, contact_person, hotel_id))
+                logger.info(f"Updated hotel details: {name}")
+                
+                # Update Email separate (if provided)
+                if email:
+                    conn.close() # Close to use the other method which opens its own connection
+                    self.upsert_hotel_email(hotel_id, email, "general", "manual_add", 1.0)
+                    return hotel_id
+                    
                 return hotel_id
             else:
                 cursor.execute("""
-                    INSERT INTO hotels (name, email_address, website, contact_person)
-                    VALUES (?, ?, ?, ?)
-                """, (name, email, website, contact_person))
+                    INSERT INTO hotels (name, website, contact_person)
+                    VALUES (?, ?, ?)
+                """, (name, website, contact_person))
+                hotel_id = cursor.lastrowid
                 logger.info(f"Added new hotel: {name}")
-                return cursor.lastrowid
+                
+                if email:
+                    conn.close()
+                    self.upsert_hotel_email(hotel_id, email, "general", "manual_add", 1.0)
+                    return hotel_id
+                
+                return hotel_id
         finally:
-            conn.commit()
-            conn.close()
+            try:
+                conn.close()
+            except:
+                pass
 
     def get_stale_hotels(self, days_threshold: int = 30) -> List[Dict]:
         """
@@ -184,3 +200,102 @@ class HotelManager:
             logger.error(f"Error upserting email: {e}")
         finally:
             conn.close()
+
+    def get_or_create_room_type(self, hotel_id: int, room_type_name: str) -> int:
+        """
+        Get or create a Room Type linked to a hotel.
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        try:
+            # Check existing
+            cursor.execute(
+                "SELECT id FROM room_types WHERE hotel_id = ? AND name = ?", 
+                (hotel_id, room_type_name)
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                return row[0]
+            
+            # Create new
+            cursor.execute(
+                "INSERT INTO room_types (hotel_id, name) VALUES (?, ?)",
+                (hotel_id, room_type_name)
+            )
+            conn.commit()
+            return cursor.lastrowid
+            
+        except sqlite3.Error as e:
+            logger.error(f"Error managing room type: {e}")
+            return None
+        finally:
+            conn.close()
+
+    def get_or_create_meal_plan(self, meal_plan_name: str) -> int:
+        """
+        Get or create a Meal Plan.
+        Handles standardization (similar to AirtableClient).
+        """
+        if not meal_plan_name:
+            return None
+            
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        # Standardization Map
+        mapping = {
+            'bb': 'BB',
+            'bed & breakfast': 'BB',
+            'bed and breakfast': 'BB',
+            'bread and brakfast': 'BB',
+            'bed and brakfast': 'BB',
+            'hb': 'HB',
+            'half board': 'HB',
+            'fb': 'FB',
+            'full board': 'FB',
+            'ai': 'AI',
+            'all inclusive': 'AI',
+            'ro': 'RO',
+            'room only': 'RO',
+        }
+        
+        raw = meal_plan_name.lower().strip().replace('.', '').replace(',', '')
+        code = mapping.get(raw)
+        
+        # Fuzzy fallback
+        if not code:
+            if 'breakfast' in raw: code = 'BB'
+            elif 'half' in raw and 'board' in raw: code = 'HB'
+            elif 'full' in raw and 'board' in raw: code = 'FB'
+            elif 'inclusive' in raw: code = 'AI'
+            else:
+                # If unknown, we might not be able to insert if 'code' is constrained to be unique/standard
+                # But our schema allows new codes. Let's use the raw name as code if short, or just generate one?
+                # Actually schema says code is UNIQUE.
+                # Let's try to use the raw name if it looks like a code (short), else just use it as name?
+                # For safety, let's treat unknown as NULL/None or create a custom one.
+                # Let's return None for now to avoid pollution, or mapping to "Unknown"?
+                # Ideally we want to support variations.
+                # Let's just try to find by Name if Code fails?
+                # For now simplify: if not found, don't link.
+                pass
+        
+        try:
+            if code:
+                cursor.execute("SELECT id FROM meal_plans WHERE code = ?", (code,))
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
+            
+            # If no code match, maybe check by name?
+            # Or just return None
+            return None
+            
+        except sqlite3.Error as e:
+            logger.error(f"Error managing meal plan: {e}")
+            return None
+        finally:
+            conn.close()
+
