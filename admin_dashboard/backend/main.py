@@ -41,7 +41,7 @@ chat_bot = SmartChatInterface(db_path=DB_PATH)
 
 # Sync contacts ensuring fresh data
 try:
-    from sync_contacts import sync_contacts
+    from scripts.ops.sync_contacts import sync_contacts
     logger.info("Syncing contacts from Airtable...")
     sync_contacts()
 except Exception as e:
@@ -274,4 +274,4 @@ async def chat_endpoint(request: QueryRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=4002)
+    uvicorn.run(app, host="0.0.0.0", port=4003)
