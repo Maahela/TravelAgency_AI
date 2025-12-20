@@ -71,6 +71,24 @@ def search_rates(
                 records = airtable.rates_table.all(formula=formula)
                 if records:
                     logger.info(f"Found {len(records)} rates in Airtable")
+                    
+                    # Get room type and meal plan record names
+                    # We need to resolve linked records to get actual names
+                    room_type_cache = {}
+                    meal_plan_cache = {}
+                    
+                    # Fetch all room types and meal plans for efficient lookup
+                    try:
+                        all_room_types = airtable.room_types_table.all()
+                        for rt in all_room_types:
+                            room_type_cache[rt['id']] = rt['fields'].get('Name', '')
+                        
+                        all_meal_plans = airtable.meal_plans_table.all()
+                        for mp in all_meal_plans:
+                            meal_plan_cache[mp['id']] = mp['fields'].get('Name', '')
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch room types/meal plans cache: {e}")
+                    
                     # Map back to standardized format
                     results = []
                     for r in records:
@@ -84,14 +102,26 @@ def search_rates(
                         
                         if max_rate and price > max_rate:
                             continue
+                        
+                        # Resolve linked Room Type record to actual name
+                        room_type_ids = f.get('Room Type', [])
+                        room_type_name = ''
+                        if isinstance(room_type_ids, list) and room_type_ids:
+                            room_type_name = room_type_cache.get(room_type_ids[0], 'Unknown')
+                        
+                        # Resolve linked Meal Plan record to actual name
+                        meal_plan_ids = f.get('Meal Plan', [])
+                        meal_plan_name = ''
+                        if isinstance(meal_plan_ids, list) and meal_plan_ids:
+                            meal_plan_name = meal_plan_cache.get(meal_plan_ids[0], 'BB')
                             
                         results.append({
                             'hotel_name': f.get('Hotel Name'),
-                            'room_type': f.get('Room Type'),
+                            'room_type': room_type_name,
                             'occupancy': f.get('Occupancy'), # Added field
                             'rate_per_night': price, # Aligning with SQLite's 'rate_per_night'
                             'currency': f.get('Currency', 'USD'),
-                            'meal_plan': f.get('Meal Plan'),
+                            'meal_plan': meal_plan_name,
                             'source': 'Airtable',
                             'season_start_date': f.get('Season Start'),
                             'season_end_date': f.get('Season End'),

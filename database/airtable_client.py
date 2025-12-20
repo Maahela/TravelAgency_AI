@@ -45,6 +45,8 @@ class AirtableClient:
         self.contacts_table = self.api.table(self.base_id, "HotelContacts")
         self.price_items_table = self.api.table(self.base_id, "Price_Items")
         self.contract_data_table = self.api.table(self.base_id, "ContractData")
+        self.room_types_table = self.api.table(self.base_id, "Room Types")
+        self.meal_plans_table = self.api.table(self.base_id, "Meal Plans")
         
         self._initialized = True
         logger.info("AirtableClient initialized successfully")
@@ -52,6 +54,122 @@ class AirtableClient:
     def is_connected(self) -> bool:
         """Check if Airtable connection is valid."""
         return self.api is not None
+
+    def get_or_create_hotel(self, hotel_name: str) -> List[str]:
+        """
+        Check if hotel exists in Hotels table.
+        If yes, return [Record ID].
+        If no, create and return [Record ID].
+        """
+        if not self.is_connected() or not hotel_name:
+            return []
+            
+        try:
+            # Check if exists
+            formula = f"{{Name}}='{hotel_name}'"
+            existing = self.hotels_table.all(formula=formula)
+            
+            if existing:
+                return [existing[0]['id']]
+            else:
+                # Create new
+                new_record = self.hotels_table.create({"Name": hotel_name})
+                return [new_record['id']]
+        except Exception as e:
+            logger.error(f"Error in get_or_create_hotel: {e}")
+            return []
+
+    def get_or_create_room_type(self, room_type_name: str, hotel_id: str) -> List[str]:
+        """
+        Get or create a Room Type linked to a specific Hotel.
+        Args:
+            room_type_name: Name of the room type
+            hotel_id: Record ID of the Hotel
+        """
+        if not self.is_connected() or not room_type_name or not hotel_id:
+            return []
+            
+        try:
+            # Check if exists for this hotel
+            safe_name = room_type_name.replace("'", "\\'")
+            formula = f"AND({{Name}}='{safe_name}', {{Hotel}}='{hotel_id}')"
+            
+            existing = self.room_types_table.all(formula=formula)
+            
+            if existing:
+                return [existing[0]['id']]
+            else:
+                # Create new
+                record = {
+                    "Name": room_type_name,
+                    "Hotel": [hotel_id] # Link to hotel
+                }
+                new_record = self.room_types_table.create(record)
+                return [new_record['id']]
+        except Exception as e:
+            logger.error(f"Error in get_or_create_room_type: {e}")
+            return []
+
+    def get_or_create_meal_plan(self, meal_plan_name: str) -> List[str]:
+        """
+        Get or create a Meal Plan.
+        Standardizes names (e.g. 'bed & breakfast' -> 'BB').
+        """
+        if not self.is_connected() or not meal_plan_name:
+            return []
+            
+        # Standardization Logic
+        raw = meal_plan_name.lower().strip().replace('.', '').replace(',', '')
+        
+        # Mapping dict
+        mapping = {
+            'bb': 'BB',
+            'bed & breakfast': 'BB',
+            'bed and breakfast': 'BB',
+            'bread and brakfast': 'BB',
+            'bed and brakfast': 'BB',
+            'hb': 'HB',
+            'half board': 'HB',
+            'fb': 'FB',
+            'full board': 'FB',
+            'ai': 'AI',
+            'all inclusive': 'AI',
+            'ro': 'RO',
+            'room only': 'RO',
+        }
+        
+        # Check explicit mapping first
+        final_name = mapping.get(raw)
+        
+        # If not exact match, check fuzzy contains
+        if not final_name:
+            if 'breakfast' in raw or 'brakfast' in raw:
+                final_name = 'BB'
+            elif 'half' in raw and 'board' in raw:
+                final_name = 'HB'
+            elif 'full' in raw and 'board' in raw:
+                final_name = 'FB'
+            elif 'inclusive' in raw:
+                final_name = 'AI'
+            else:
+                final_name = meal_plan_name # Fallback to original if unknown category. 
+                # Or maybe standardized to Title Case?
+                # Let's keep original if we don't know it.
+        
+        try:
+            safe_name = final_name.replace("'", "\\'")
+            formula = f"{{Name}}='{safe_name}'"
+            existing = self.meal_plans_table.all(formula=formula)
+            
+            if existing:
+                return [existing[0]['id']]
+            else:
+                record = {"Name": final_name}
+                new_record = self.meal_plans_table.create(record)
+                return [new_record['id']]
+        except Exception as e:
+            logger.error(f"Error in get_or_create_meal_plan: {e}")
+            return []
 
     def insert_rate(self, rate_data: Dict) -> bool:
         """
@@ -105,12 +223,32 @@ class AirtableClient:
             currency = rate_data.get('currency', 'USD')
             if currency == '$': currency = 'USD'
 
+            # Get Hotel ID (Linked Record)
+            hotel_ids = self.get_or_create_hotel(rate_data.get('hotel_name'))
+            
+            # Safe access to singleton list
+            hotel_id_str = hotel_ids[0] if hotel_ids else None
+
+            # Get Room Type ID (Linked Record)
+            room_type_ids = []
+            if hotel_id_str and rate_data.get('room_type'):
+                room_type_ids = self.get_or_create_room_type(rate_data.get('room_type'), hotel_id_str)
+
+            # Get Meal Plan ID (Linked Record)
+            meal_plan_ids = self.get_or_create_meal_plan(rate_data.get('meal_plan'))
+
             # Map Python dict keys to Airtable column names
             record = {
-               "Hotel Name": rate_data.get('hotel_name'),
-               "Room Type": rate_data.get('room_type'),
+               "Hotel Name": rate_data.get('hotel_name'), # Text
+               "Hotel": hotel_ids, # Linked to Hotels
+               
+               # "Room Type (Text)": rate_data.get('room_type'), # Legacy text field removed
+               "Room Type": room_type_ids, # Linked field
+               
+               # "Meal Plan (Text)": rate_data.get('meal_plan'), # Legacy text field removed
+               "Meal Plan": meal_plan_ids, # Linked to Meal Plans
+               
                "Occupancy": self._map_occupancy(rate_data.get('occupancy')),
-               "Meal Plan": rate_data.get('meal_plan'),
                "Price": clean_price(rate_data.get('price', rate_data.get('rate_per_night'))),
                "Currency": currency,
                "Season Start": clean_date(rate_data.get('season_start_date')),
@@ -212,8 +350,12 @@ class AirtableClient:
             if category not in allowed_categories:
                 category = 'other_charge'
 
+            # Get Hotel ID (Linked Record)
+            hotel_ids = self.get_or_create_hotel(item_data.get('hotel_name'))
+            
             record = {
                 "Hotel Name": item_data.get('hotel_name'),
+                "Hotel": hotel_ids,
                 "Category": category,
                 "Description": item_data.get('description'),
                 "Price": item_data.get('price'),
@@ -229,9 +371,17 @@ class AirtableClient:
                 "Source File": item_data.get('source_file')
             }
             # Stringify everything to avoid field type errors in singleLineText
-            record = {k: str(v) if v is not None else None for k, v in record.items()}
-            # Remove None
-            record = {k: v for k, v in record.items() if v is not None}
+            # BUT exclude 'Hotel' which must remain a list
+            vals = {}
+            for k, v in record.items():
+                if v is None:
+                    continue
+                if k == 'Hotel':
+                    vals[k] = v
+                else:
+                    vals[k] = str(v)
+            
+            record = vals
             
             self.price_items_table.create(record)
             return True

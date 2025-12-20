@@ -2,7 +2,7 @@
 Budget logic engine.
 Calculates costs based on structured itinerary data using DB/Airtable rates.
 """
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from database.query_rates import search_rates
 from database.query_price_items import search_price_items
 from dataclasses import dataclass, field
@@ -66,45 +66,71 @@ class BudgetCalculator:
             rates = search_rates(hotel_name=hotel_name, db_path=self.db_path)
             price_items = search_price_items(hotel_name=hotel_name, db_path=self.db_path)
             
-            result = HotelResult(hotel_name=hotel_name, nights=nights, room_cost=None)
+            result = HotelResult (hotel_name=hotel_name, nights=nights, room_cost=None)
             
             # 2. Logic for Cross-Seasonal Stays
             # Split stay into individual nights and find rate for each
             from datetime import datetime, timedelta
-            try:
-                check_in = datetime.strptime(stay['check_in'], "%Y-%m-%d")
-                total_base_cost = 0.0
-                calc_details = []
-                
-                for i in range(nights):
-                    current_night = (check_in + timedelta(days=i)).strftime("%Y-%m-%d")
-                    # Find rate for this specific night
-                    match = self._find_best_rate(rates, room_type, occupancy, current_night)
+            
+            # Check if we have check_in date
+            check_in_str = stay.get('check_in')
+            
+            if check_in_str:
+                # Use date-specific calculation
+                try:
+                    check_in = datetime.strptime(check_in_str, "%Y-%m-%d")
+                    total_base_cost = 0.0
+                    calc_details = []
+                    
+                    for i in range(nights):
+                        current_night = (check_in + timedelta(days=i)).strftime("%Y-%m-%d")
+                        # Find rate for this specific night
+                        match = self._find_best_rate(rates, room_type, occupancy, current_night)
+                        if match:
+                            rate_val = float(match.get('rate_per_night', 0) or 0)
+                            total_base_cost += (rate_val * rooms)
+                            # Track for calc string (simplified)
+                            if not calc_details or calc_details[-1][0] != rate_val:
+                                calc_details.append([rate_val, 1])
+                            else:
+                                calc_details[-1][1] += 1
+                        else:
+                            result.status = "PARTIAL"
+                            result.notes.append(f"No rate found for {current_night}")
+                    
+                    if result.status != "PARTIAL":
+                        calc_str = " + ".join([f"({r} x {rooms} room x {n} nights)" for r, n in calc_details])
+                        result.room_cost = CostBreakdown(
+                            description=f"{room_type} ({meal_plan})",
+                            calculation_str=calc_str,
+                            amount=total_base_cost
+                        )
+                        result.subtotal = total_base_cost
+                    else:
+                        result.status = "NO_SEASONAL_RATE"
+                except Exception as e:
+                    logger.error(f"Error in date calculation: {e}")
+                    result.status = "MISSING_RATE"
+            else:
+                # Fallback: Use average/best available rate when no dates provided
+                try:
+                    match = self._find_best_rate_general(rates, room_type, occupancy)
                     if match:
                         rate_val = float(match.get('rate_per_night', 0) or 0)
-                        total_base_cost += (rate_val * rooms)
-                        # Track for calc string (simplified)
-                        if not calc_details or calc_details[-1][0] != rate_val:
-                            calc_details.append([rate_val, 1])
-                        else:
-                            calc_details[-1][1] += 1
+                        total_base_cost = rate_val * rooms * nights
+                        calc_str = f"{rate_val} x {rooms} room x {nights} nights"
+                        result.room_cost = CostBreakdown(
+                            description=f"{room_type} ({meal_plan})",
+                             calculation_str=calc_str,
+                            amount=total_base_cost
+                        )
+                        result.subtotal = total_base_cost
+                        result.notes.append("⚠️ Using average rate (dates not specified)")
                     else:
-                        result.status = "PARTIAL"
-                        result.notes.append(f"No rate found for {current_night}")
-                
-                if result.status != "PARTIAL":
-                    calc_str = " + ".join([f"({r} x {rooms} room x {n} nights)" for r, n in calc_details])
-                    result.room_cost = CostBreakdown(
-                        description=f"{room_type} ({meal_plan})",
-                        calculation_str=calc_str,
-                        amount=total_base_cost
-                    )
-                    result.subtotal = total_base_cost
-                else:
-                    result.status = "NO_SEASONAL_RATE"
-            except Exception as e:
-                logger.error(f"Error in date math: {e}")
-                result.status = "MISSING_RATE"
+                        result.status = "MISSING_RATE"
+                except Exception as e:
+                    logger.error(f"Error in rate calculation: {e}")
+                    result.status = "MISSING_RATE"
 
             # 3. Apply Supplements (Price Items)
             if result.status == "OK" or result.status == "PARTIAL":
@@ -165,6 +191,16 @@ class BudgetCalculator:
             if s_start <= date_str <= s_end:
                 return r
         return None
+
+    def _find_best_rate_general(self, rates, room_type, occupancy):
+        """Find best matching rate without specific date (fallback)."""
+        candidates = [r for r in rates if room_type.lower() in str(r.get('room_type', '')).lower()]
+        if occupancy:
+            occ_matches = [r for r in candidates if occupancy.lower() in str(r.get('occupancy', r.get('Occupancy', ''))).lower()]
+            if occ_matches: candidates = occ_matches
+        
+        # Return first match or None
+        return candidates[0] if candidates else None
 
     def _find_price_item(self, items, category, sub_type=None, age=None):
         """Find specific supplement item."""

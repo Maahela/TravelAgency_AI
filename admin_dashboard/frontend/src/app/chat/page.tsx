@@ -9,11 +9,12 @@ import {
   Sparkles, 
   RotateCcw, 
   Trash2,
-  Paperclip,
-  Maximize2
+  Copy,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { sendMessage } from '@/services/api';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
   id: string;
@@ -21,6 +22,15 @@ interface Message {
   text: string;
   timestamp: Date;
 }
+
+const SUGGESTED_PROMPTS = [
+  "Show me rates for Galle Face Hotel",
+  "Find rooms for 2 people under $200",
+  "Calculate budget for 3 nights at Galle Face Hotel",
+  "Find email for Hilton Colombo",
+  "What's the HB rate at Galle Face?",
+  "help"
+];
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([
@@ -33,6 +43,7 @@ export default function ChatPage() {
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -43,14 +54,25 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  const handleSend = async (e?: React.FormEvent) => {
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  const handleSend = async (e?: React.FormEvent, promptText?: string) => {
     e?.preventDefault();
-    if (!input.trim() || isTyping) return;
+    const messageText = promptText || input;
+    if (!messageText.trim() || isTyping) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      text: input,
+      text: messageText,
       timestamp: new Date()
     };
 
@@ -59,7 +81,7 @@ export default function ChatPage() {
     setIsTyping(true);
 
     try {
-      const data = await sendMessage(input);
+      const data = await sendMessage(messageText);
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'bot',
@@ -127,12 +149,27 @@ export default function ChatPage() {
                   {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
                 </div>
                 <div className={`max-w-[70%] space-y-2 ${msg.role === 'user' ? 'items-end' : ''}`}>
-                  <div className={`px-6 py-4 rounded-3xl text-[15px] leading-relaxed
+                  <div className={`group/message relative px-6 py-4 rounded-3xl text-[15px] leading-relaxed
                     ${msg.role === 'user' 
                       ? 'bg-accent text-white rounded-tr-none' 
                       : 'bg-white/[0.03] border border-card-border rounded-tl-none'}`}
                   >
-                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                    {msg.role === 'bot' ? (
+                      <div className="prose prose-invert prose-sm max-w-none">
+                        <ReactMarkdown>{msg.text}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                    )}
+                    {msg.role === 'bot' && (
+                      <button
+                        onClick={() => copyToClipboard(msg.text, msg.id)}
+                        className="absolute top-2 right-2 p-2 rounded-lg bg-white/5 hover:bg-white/10 opacity-0 group-hover/message:opacity-100 transition-opacity"
+                        title="Copy message"
+                      >
+                        {copiedId === msg.id ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                      </button>
+                    )}
                   </div>
                   <p className="text-[10px] text-muted-foreground px-2">
                     {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -160,6 +197,26 @@ export default function ChatPage() {
           <div ref={messagesEndRef} />
         </div>
 
+        {messages.length === 1 && (
+          <div className="px-6 pb-4 border-b border-card-border">
+            <p className="text-xs text-muted-foreground mb-3 font-semibold">Quick Start:</p>
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTED_PROMPTS.map((prompt, idx) => (
+                <motion.button
+                  key={idx}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: idx * 0.05 }}
+                  onClick={() => handleSend(undefined, prompt)}
+                  className="px-3 py-1.5 text-xs rounded-full bg-white/5 border border-card-border hover:border-accent/50 hover:bg-white/10 transition-all"
+                >
+                  {prompt}
+                </motion.button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="p-6 bg-white/[0.02] border-t border-card-border">
           <form onSubmit={handleSend} className="relative flex items-center gap-4">
              <div className="flex-1 relative group">
@@ -167,17 +224,9 @@ export default function ChatPage() {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask about hotel rates, supplements or budgets..."
-                  className="w-full bg-white/[0.04] border border-card-border rounded-2xl px-6 py-4 pr-32 focus:outline-none focus:border-accent/50 focus:bg-white/[0.06] transition-all"
+                  placeholder="Ask about hotel rates, supplements or budgets... (type 'help' for examples)"
+                  className="w-full bg-white/[0.04] border border-card-border rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/50 focus:bg-white/[0.06] transition-all"
                 />
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                   <button type="button" className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-                      <Paperclip size={18} />
-                   </button>
-                   <button type="button" className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-                      <Maximize2 size={18} />
-                   </button>
-                </div>
              </div>
              <button
                type="submit"

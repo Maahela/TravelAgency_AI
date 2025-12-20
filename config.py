@@ -59,7 +59,16 @@ LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
 TESSERACT_PATH = os.getenv("TESSERACT_PATH", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 
 # Database Configuration
-DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "rates.db"))).resolve()
+raw_db_path = os.getenv("DB_PATH")
+if raw_db_path:
+    # If absolute, use as is. If relative, anchor to BASE_DIR.
+    p = Path(raw_db_path)
+    if p.is_absolute():
+        DB_PATH = p.resolve()
+    else:
+        DB_PATH = (BASE_DIR / p).resolve()
+else:
+    DB_PATH = (DATA_DIR / "rates.db").resolve()
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME", "rates")

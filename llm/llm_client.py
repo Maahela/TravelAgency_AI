@@ -27,7 +27,7 @@ def generate_llm_response(
         for key_index, api_key in enumerate(GOOGLE_API_KEYS):
             try:
                 genai.configure(api_key=api_key)
-                model_name = "gemini-flash-latest"
+                model_name = "gemini-2.5-flash"
                 
                 # Construct prompt with system message
                 full_prompt = ""

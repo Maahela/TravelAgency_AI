@@ -14,7 +14,7 @@ from database.airtable_client import AirtableClient
 from database.query_rates import search_rates, format_rates_for_llm
 from database.query_price_items import search_price_items
 from database.hotel_management import HotelManager
-from chat.chat_interface import ChatInterface
+from chat.smart_chat_interface import SmartChatInterface
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -30,13 +30,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Chat Interface
-chat_bot = ChatInterface()
-
 # Log DB path for debugging
 from config import DB_PATH
 logger.info(f"Backend using DB_PATH: {DB_PATH}")
 logger.info(f"DB exists: {DB_PATH.exists()}")
+
+# Initialize Chat Interface
+# Use the new Smart Chat Interface with function calling
+chat_bot = SmartChatInterface(db_path=DB_PATH)
+
+# Sync contacts ensuring fresh data
+try:
+    from sync_contacts import sync_contacts
+    logger.info("Syncing contacts from Airtable...")
+    sync_contacts()
+except Exception as e:
+    logger.error(f"Failed to sync contacts on startup: {e}")
 
 class QueryRequest(BaseModel):
     message: str
@@ -93,28 +102,25 @@ async def get_stats():
         # Ideally: fetch records with formula "IS_AFTER({Created}, TODAY())"
         
         # Proper implementation:
+        # Proper implementation:
         try:
-            from datetime import datetime
-            today = datetime.now().strftime("%Y-%m-%d")
-            # Airtable formula for createdTime is tricky without a field.
-            # We will use valid rates count as the primary metric.
-            # Calculate unique hotels from rates as "Live Hotels" source of truth
-            try: 
-                # This iterates all rates, which we already fetched via .all() under the hood in len()
-                # Optimized way:
-                all_rates = airtable.rates_table.all()
-                rates_count = len(all_rates)
-                unique_hotels = set()
-                for r in all_rates:
-                    if 'fields' in r and 'Hotel Name' in r['fields']:
-                        unique_hotels.add(r['fields']['Hotel Name'])
-                live_hotels_count = len(unique_hotels)
-            except:
-                live_hotels_count = 0
+            # Fetch all required data first
+            all_rates = airtable.rates_table.all()
+            all_price_items = airtable.price_items_table.all()
+            all_logs = airtable.processing_log_table.all()
+
+            rates_count = len(all_rates)
+            price_items_count = len(all_price_items)
+            processing_logs_count = len(all_logs)
+
+            # Calculate unique hotels from the Hotels table directly (Linked)
+            # This is more accurate and faster than iterating all rates
+            all_hotels = airtable.hotels_table.all()
+            live_hotels_count = len(all_hotels)
 
             return {
                 "total_rates": rates_count,
-                "rates_trend": "+5%", # Placeholder transformed to backend-served
+                "rates_trend": "+5%", 
                 "total_price_items": price_items_count,
                 "price_items_trend": "+12%",
                 "total_logs": processing_logs_count,
@@ -191,45 +197,64 @@ async def get_analytics():
 
 @app.get("/contacts")
 async def get_contacts():
-    """Get hotel contacts from Airtable Rates table (unique hotel names)."""
+    """Get hotel contacts by merging Hotels and HotelContacts tables."""
     try:
         airtable = AirtableClient()
         if not airtable.is_connected():
             raise HTTPException(status_code=503, detail="Airtable not connected")
         
-        # Get all rates
-        all_rates = airtable.rates_table.all()
-
-        # Get contacts mapping
+        # Get all hotels from the Hotels table
+        all_hotels = airtable.hotels_table.all()
+        
+        # Get all contact details from HotelContacts table
         try:
             contacts_records = airtable.contacts_table.all()
-            contact_map = {}
+            # Build comprehensive contact map indexed by hotel name
+            contact_details = {}
             for r in contacts_records:
-                h_name = r['fields'].get('Hotel Name')
-                email = r['fields'].get('Email')
+                fields = r['fields']
+                h_name = fields.get('Hotel Name')
                 if h_name:
-                    contact_map[h_name] = email
+                    contact_details[h_name] = {
+                        'email': fields.get('Email'),
+                        # Handle both 'Website' and 'Website ' (with trailing space)
+                        'website': fields.get('Website') or fields.get('Website '),
+                        # Handle both 'Contact Person' and with potential trailing space
+                        'contact_person': fields.get('Contact Person') or fields.get('Contact Person '),
+                        'source': fields.get('Discovery Source', 'Manual Entry'),
+                        'created_at': r.get('createdTime', ''),
+                        'updated_at': fields.get('Last Modified Time', r.get('createdTime', ''))
+                    }
         except Exception as e:
-            logger.error(f"Failed to fetch contacts: {e}")
-            contact_map = {}
+            logger.error(f"Failed to fetch contacts details: {e}")
+            contact_details = {}
         
-        # Extract unique hotels
-        hotels = {}
-        for record in all_rates:
-            fields = record['fields']
-            hotel_name = fields.get('Hotel Name')
-            if hotel_name and hotel_name not in hotels:
-                hotels[hotel_name] = {
-                    "id": record['id'],
+        # Build merged hotel contact list
+        results = []
+        for hotel_record in all_hotels:
+            fields = hotel_record['fields']
+            hotel_name = fields.get('Name')
+            
+            if hotel_name:
+                # Get contact details if available
+                details = contact_details.get(hotel_name, {})
+                
+                # Use createdTime from the hotel record as default
+                created_at = details.get('created_at', hotel_record.get('createdTime', ''))
+                last_updated = details.get('updated_at', created_at)
+                
+                results.append({
+                    "id": hotel_record['id'],
                     "name": hotel_name,
-                    "email_address": contact_map.get(hotel_name),
-                    "website": None,
-                    "contact_person": None,
-                    "source": "Airtable (from Rates)"
-                }
+                    "email_address": details.get('email'),
+                    "website": details.get('website'),
+                    "contact_person": details.get('contact_person'),
+                    "last_rate_request_date": last_updated,
+                    "created_at": created_at,
+                    "updated_at": last_updated
+                })
         
-        results = list(hotels.values())
-        logger.info(f"Returning {len(results)} unique hotels from Airtable Rates")
+        logger.info(f"Returning {len(results)} hotels from merged Hotels + HotelContacts data")
         return results
         
     except Exception as e:

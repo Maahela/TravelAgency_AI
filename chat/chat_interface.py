@@ -38,6 +38,7 @@ class ChatInterface:
         self.last_hotel = None  # Remember last mentioned hotel
         self.current_flow = None  # Tracks active flow (e.g., 'budget')
         self.flow_context = {}    # Stores context for the active flow
+        self.conversation_history = []  # Track conversation history
         logger.info("ChatInterface initialized with conversation memory")
     
     
@@ -187,25 +188,32 @@ class ChatInterface:
         hotel_name = match.group(1).strip()
         manager = HotelManager()
         
-        # Check DB first
-        emails = manager.get_hotel_emails(hotel_name)
-        if emails:
-            e_str = ", ".join([f"{v} ({k})" for k, v in emails.items()])
-            return f"🔍 I found these contacts in our database for **{hotel_name}**: {e_str}"
+        # Check DB first (with error handling)
+        try:
+            emails = manager.get_hotel_emails(hotel_name)
+            if emails:
+                e_str = ", ".join([f"{v} ({k})" for k, v in emails.items()])
+                return f"🔍 I found these contacts in our database for **{hotel_name}**: {e_str}"
+        except Exception as e:
+            logger.error(f"Error checking database: {e}")
             
-        # Trigger live discovery
-        agent = HotelDiscoveryAgent()
-        print(f"\n🕷️ Triggering live discovery for {hotel_name}...")
-        result = agent.run(hotel_name)
-        
-        if result.get('run_status') == 'success' and result.get('emails'):
-            e_list = [f"{e['email']} ({e['purpose']})" for e in result['emails']]
-            e_str = ", ".join(e_list)
-            return f"✅ Discovery successful! I found these emails for **{hotel_name}**: {e_str}. They have been saved to the database."
-        elif result.get('run_status') == 'sources_not_found':
-            return f"❌ I couldn't find any credible contact sources for **{hotel_name}** online. Please check the website manually."
-        else:
-            return f"❌ Discovery failed for **{hotel_name}**. Reason: {result.get('error', 'Unknown error')}"
+        # Trigger live discovery (with error handling)
+        try:
+            agent = HotelDiscoveryAgent()
+            logger.info(f"Triggering live discovery for {hotel_name}...")
+            result = agent.run(hotel_name)
+            
+            if result.get('run_status') == 'success' and result.get('emails'):
+                e_list = [f"{e['email']} ({e['purpose']})" for e in result['emails']]
+                e_str = ", ".join(e_list)
+                return f"✅ Discovery successful! I found these emails for **{hotel_name}**: {e_str}. They have been saved to the database."
+            elif result.get('run_status') == 'sources_not_found':
+                return f"❌ I couldn't find any credible contact sources for **{hotel_name}** online. Please check the website manually."
+            else:
+                return f"❌ Discovery failed for **{hotel_name}**. Reason: {result.get('error', 'Unknown error')}"
+        except Exception as e:
+            logger.error(f"Email discovery failed: {e}")
+            return f"❌ Email discovery is currently unavailable. Error: {str(e)}\n\n**Tip**: You can manually add emails using: 'save email address@hotel.com for {hotel_name}'"
 
     def _handle_workflow_trigger(self, user_query: str) -> str:
         """
@@ -321,7 +329,37 @@ class ChatInterface:
         logger.info(f"Processing query: {user_query}")
         query_lower = user_query.lower()
 
-        # 0. State-based routing (Priority)
+        # 0. Help command
+        if query_lower in ['help', '/help', '?', 'commands']:
+            return """**JAKEmail Assistant Help** 🤖
+
+**Rate Queries:**
+- "Show me rates for Galle Face Hotel"
+- "Find rooms for 2 people under $200"
+- "What's the BB rate at Hilton for December?"
+
+**Budget Calculations:**
+- "Calculate budget for 3 nights at Hotel A, 2 nights at Hotel B"
+- "Cost for 5 nights at Galle Face, double occupancy, HB"
+
+**Email Discovery:**
+- "Find email for Seaside Resort"
+- "Get contact info for Hilton Colombo"
+
+**Rate Requests:**
+- "Send rate request to Galle Face Hotel"
+- "Draft rate request for Cinnamon Grand"
+
+**Workflow:**
+- "Check for new emails"
+- "Process inbox"
+
+**Tips:**
+- I remember the last hotel you mentioned for follow-up questions
+- For budgets, specify: hotel names, nights, occupancy, and meal plan
+- Type 'cancel' to exit any active flow"""
+
+        # 0a. State-based routing (Priority)
         logger.debug(f"Current flow: {self.current_flow}")
         if self.current_flow == 'budget':
             # Check if this query is trying to cancel or start something else
@@ -394,7 +432,17 @@ class ChatInterface:
         )
         
         if not rates and not price_items:
-            return "I couldn't find any rates or pricing information matching your criteria in the database."
+            # Improved error message with suggestions
+            suggestions = []
+            if params.get('hotel_name'):
+                suggestions.append(f"Try checking the spelling of '{params['hotel_name']}'")
+                suggestions.append("Use a partial name like 'Galle' instead of full name")
+            if params.get('date_range'):
+                suggestions.append("Try a different date range or remove date filters")
+            suggestions.append("Type 'help' to see example queries")
+            
+            suggestion_text = "\n\n**Suggestions:**\n- " + "\n- ".join(suggestions) if suggestions else ""
+            return f"❌ I couldn't find any rates or pricing information matching your criteria in the database.{suggestion_text}"
         
         # Format context
         context_parts = []
