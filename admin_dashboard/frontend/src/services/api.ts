@@ -44,4 +44,20 @@ export const sendMessage = async (message: string) => {
   return response.data;
 };
 
+export const getAuditLog = async (limit: number = 50) => {
+  const response = await api.get("/audit-log", { params: { limit } });
+  return response.data;
+};
+
+export const getSystemStatus = async () => {
+  const response = await api.get("/system-status");
+  return response.data;
+};
+
+export const getHealth = async () => {
+  const response = await api.get("/health");
+  return response.data;
+};
+
 export default api;
+

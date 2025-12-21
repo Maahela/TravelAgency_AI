@@ -33,18 +33,61 @@ const SUGGESTED_PROMPTS = [
 ];
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'bot',
-      text: 'Hello! I am your JAKEmail Assistant. How can I help you with your hotel intelligence today?',
-      timestamp: new Date()
-    }
-  ]);
+const SESSION_KEY = 'jakemail_chat_history_v1';
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [mounted, setMounted] = useState(false);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Initial load
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const savedSession = localStorage.getItem(SESSION_KEY);
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        const hydratedMessages = parsed.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+        setMessages(hydratedMessages);
+      } else {
+        // Only set default greeting if no history exists
+        setMessages([{
+          id: '1',
+          role: 'bot',
+          text: 'Hello! I am your JAKEmail Assistant. How can I help you with your hotel intelligence today?',
+          timestamp: new Date()
+        }]);
+      }
+    } catch (err) {
+      console.error('Failed to load chat session:', err);
+      // Fallback
+      setMessages([{
+        id: '1',
+        role: 'bot',
+        text: 'Hello! I am your JAKEmail Assistant. How can I help you with your hotel intelligence today?',
+        timestamp: new Date()
+      }]);
+    }
+  }, []);
+
+  // Save changes ONLY after mounted and we have valid state
+  useEffect(() => {
+    if (mounted && messages.length > 0) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(messages));
+    }
+  }, [messages, mounted]);
+
+  // Save session to localStorage whenever messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(messages));
+    }
+  }, [messages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -61,6 +104,30 @@ export default function ChatPage() {
       setTimeout(() => setCopiedId(null), 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
+    }
+  };
+
+  const handleNewSession = () => {
+    const defaultMsg: Message = {
+      id: Date.now().toString(),
+      role: 'bot',
+      text: 'Started a new session! How can I help you now?',
+      timestamp: new Date()
+    };
+    setMessages([defaultMsg]);
+    localStorage.setItem(SESSION_KEY, JSON.stringify([defaultMsg]));
+  };
+
+  const handleClearHistory = () => {
+    if (window.confirm('Are you sure you want to clear your entire chat history?')) {
+      const defaultMsg: Message = {
+        id: Date.now().toString(),
+        role: 'bot',
+        text: 'History cleared. Ready for a fresh start!',
+        timestamp: new Date()
+      };
+      setMessages([defaultMsg]);
+      localStorage.removeItem(SESSION_KEY);
     }
   };
 
@@ -115,17 +182,20 @@ export default function ChatPage() {
         </div>
         <div className="flex gap-2">
           <button 
-            onClick={() => setMessages([messages[0]])}
-            className="p-3 rounded-xl glass hover:bg-white/[0.05] text-muted-foreground transition-colors"
-            title="Reset Conversation"
+            onClick={handleNewSession}
+            className="p-3 rounded-xl glass hover:bg-white/[0.05] text-muted-foreground transition-colors flex items-center gap-2"
+            title="Start New Session"
           >
             <RotateCcw size={18} />
+            <span className="text-xs font-semibold hidden sm:inline">New Session</span>
           </button>
           <button 
-            className="p-3 rounded-xl glass hover:bg-white/[0.05] text-muted-foreground transition-colors"
-            title="Clear All"
+            onClick={handleClearHistory}
+            className="p-3 rounded-xl glass hover:bg-white/[0.05] text-red-400/80 hover:text-red-400 transition-colors flex items-center gap-2"
+            title="Clear History"
           >
             <Trash2 size={18} />
+            <span className="text-xs font-semibold hidden sm:inline">Clear</span>
           </button>
         </div>
       </header>

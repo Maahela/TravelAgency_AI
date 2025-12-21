@@ -15,6 +15,8 @@ import {
 import { motion } from "framer-motion";
 import { getStats, getRates, getAnalytics } from "@/services/api";
 import { Skeleton } from "@/components/ui/Skeleton";
+import ActivityLog from "@/components/ActivityLog";
+
 
 const container = {
   hidden: { opacity: 0 },
@@ -247,57 +249,8 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-6">
-          <h3 className="text-xl font-bold flex items-center gap-2">
-            <TrendingUp size={20} className="text-accent" />
-            Extraction Performance
-          </h3>
-          <div className="glass-card p-6 rounded-3xl space-y-6">
-            <div className="flex justify-between items-end h-32 gap-2">
-              {analytics ? (
-                Object.entries(analytics.processing_stats).map(
-                  ([label, count]: [string, any]) => {
-                    const max = Math.max(
-                      ...(Object.values(analytics.processing_stats) as number[])
-                    );
-                    const height = (count / max) * 100;
-                    return (
-                      <div
-                        key={label}
-                        className="flex-1 flex flex-col items-center gap-2 h-full justify-end group"
-                      >
-                        <div className="text-[10px] font-bold text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                          {count}
-                        </div>
-                        <motion.div
-                          initial={{ height: 0 }}
-                          animate={{ height: `${height}%` }}
-                          className={`w-full rounded-t-lg shadow-lg transition-colors
-                               ${
-                                 label === "success"
-                                   ? "bg-emerald-500/40 hover:bg-emerald-500/60"
-                                   : "bg-red-500/40 hover:bg-red-500/60"
-                               }`}
-                        />
-                        <div className="text-[9px] font-bold uppercase tracking-tighter truncate w-full text-center">
-                          {label}
-                        </div>
-                      </div>
-                    );
-                  }
-                )
-              ) : (
-                <div className="w-full flex items-center justify-center text-muted-foreground text-xs italic">
-                  Loading trends...
-                </div>
-              )}
-            </div>
-            <div className="pt-4 border-t border-card-border flex justify-between items-center text-[11px]">
-              <span className="text-muted-foreground">Total Processed</span>
-              <span className="font-bold">
-                {analytics?.total_processed || 0}
-              </span>
-            </div>
-          </div>
+          {/* Activity Log replaces Extraction Performance */}
+          <ActivityLog />
 
           <h3 className="text-xl font-bold flex items-center gap-2">
             <Clock size={20} className="text-accent" />

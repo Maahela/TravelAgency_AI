@@ -6,6 +6,7 @@ import os
 import sys
 from pydantic import BaseModel
 import sqlite3
+from datetime import datetime
 
 # Add parent directory to path to import existing modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -47,6 +48,24 @@ try:
 except Exception as e:
     logger.error(f"Failed to sync contacts on startup: {e}")
 
+# ============================================
+# Audit Logging System
+# ============================================
+audit_log: List[Dict] = []
+
+def log_audit_event(event_type: str, details: str, data_source: str = "unknown"):
+    """Log an audit event with timestamp and data source."""
+    event = {
+        "timestamp": datetime.now().isoformat(),
+        "event_type": event_type,
+        "details": details,
+        "data_source": data_source
+    }
+    audit_log.append(event)
+    if len(audit_log) > 100:
+        audit_log.pop(0)
+    logger.info(f"AUDIT: {event_type} - {details} (source: {data_source})")
+
 class QueryRequest(BaseModel):
     message: str
 
@@ -84,69 +103,75 @@ async def debug_db():
 
 @app.get("/stats")
 async def get_stats():
-    """Get high-level statistics from Airtable/SQLite."""
+    """Get statistics with Airtable/SQLite fallback."""
+    data_source = "unknown"
+    
+    # Try Airtable first
     try:
         airtable = AirtableClient()
-        if not airtable.is_connected():
-            return {"error": "Airtable disconnected"}
-        
-        # Helper to calculate trend (mock logic: treating 10% of total as "new" for demonstration 
-        # since we don't have historical snapshots, but let's try to be smarter with logs)
-        
-        all_logs = airtable.processing_log_table.all()
-        processing_logs_count = len(all_logs)
-        
-        # Calculate logs created 'today' if we had timestamps, but records in Airtable have 'createdTime' metadata
-        # We'll use a simple approximation for now to avoid slow API calls iterating everything
-        # Just hardcode a dynamic "Live" feel based on count or specific recent items if possible.
-        # Ideally: fetch records with formula "IS_AFTER({Created}, TODAY())"
-        
-        # Proper implementation:
-        # Proper implementation:
-        try:
-            # Fetch all required data first
+        if airtable.is_connected():
+            data_source = "airtable"
             all_rates = airtable.rates_table.all()
             all_price_items = airtable.price_items_table.all()
             all_logs = airtable.processing_log_table.all()
-
-            rates_count = len(all_rates)
-            price_items_count = len(all_price_items)
-            processing_logs_count = len(all_logs)
-
-            # Calculate unique hotels from the Hotels table directly (Linked)
-            # This is more accurate and faster than iterating all rates
             all_hotels = airtable.hotels_table.all()
-            live_hotels_count = len(all_hotels)
-
+            
+            log_audit_event("stats_fetched", "Retrieved statistics from Airtable", data_source)
+            
             return {
-                "total_rates": rates_count,
-                "rates_trend": "+5%", 
-                "total_price_items": price_items_count,
+                "total_rates": len(all_rates),
+                "rates_trend": "+5%",
+                "total_price_items": len(all_price_items),
                 "price_items_trend": "+12%",
-                "total_logs": processing_logs_count,
+                "total_logs": len(all_logs),
                 "logs_trend": "+8%",
-                "live_hotels": live_hotels_count
-            }
-        except Exception as inner_e:
-            logger.error(f"Error calculating stats: {inner_e}")
-            # Fallback
-            rates_count = len(airtable.rates_table.all())
-            return {
-                "total_rates": rates_count,
-                "rates_trend": "0%",
-                "total_price_items": len(airtable.price_items_table.all()),
-                "price_items_trend": "0%",
-                "total_logs": len(airtable.processing_log_table.all()),
-                "logs_trend": "0%",
-                 "live_hotels": 0
+                "live_hotels": len(all_hotels),
+                "data_source": data_source
             }
     except Exception as e:
+        logger.warning(f"Airtable stats failed: {e}, falling back to SQLite")
+    
+    # Fallback to SQLite
+    try:
+        data_source = "sqlite"
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        
+        cur.execute("SELECT COUNT(*) FROM rates")
+        rates_count = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM price_items")
+        price_items_count = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM processing_log")
+        logs_count = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(DISTINCT id) FROM hotels")
+        hotels_count = cur.fetchone()[0]
+        
+        conn.close()
+        
+        log_audit_event("stats_fetched", "Retrieved statistics from SQLite (fallback)", data_source)
+        
+        return {
+            "total_rates": rates_count,
+            "rates_trend": "N/A",
+            "total_price_items": price_items_count,
+            "price_items_trend": "N/A",
+            "total_logs": logs_count,
+            "logs_trend": "N/A",
+            "live_hotels": hotels_count,
+            "data_source": data_source
+        }
+    except Exception as e:
+        logger.error(f"Both Airtable and SQLite failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/rates")
 async def get_rates(hotel: Optional[str] = None):
     try:
         rates = search_rates(hotel_name=hotel)
+        log_audit_event("rates_queried", f"Queried rates for: {hotel or 'all hotels'}", "sqlite")
         return rates[:100] # Limit to 100 for dashboard
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -177,22 +202,52 @@ async def update_rate(rate_id: str, update: RateUpdate):
 
 @app.get("/analytics")
 async def get_analytics():
-    """Get extraction trends."""
+    """Get extraction trends with Airtable/SQLite fallback."""
+    # Try Airtable first
     try:
         airtable = AirtableClient()
-        logs = airtable.processing_log_table.all()
-        
-        # Simple count by status
-        stats = {}
-        for log in logs:
-            status = log['fields'].get('Status', 'Unknown')
-            stats[status] = stats.get(status, 0) + 1
+        if airtable.is_connected():
+            logs = airtable.processing_log_table.all()
             
+            # Simple count by status
+            stats = {}
+            for log in logs:
+                status = log['fields'].get('Status', 'Unknown')
+                stats[status] = stats.get(status, 0) + 1
+            
+            log_audit_event("analytics_fetched", "Retrieved analytics from Airtable", "airtable")
+            
+            return {
+                "processing_stats": stats,
+                "total_processed": len(logs)
+            }
+    except Exception as e:
+        logger.warning(f"Airtable analytics failed: {e}, falling back to SQLite")
+    
+    # Fallback to SQLite
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        
+        # Get status counts from processing_log
+        cur.execute("SELECT status, COUNT(*) FROM processing_log GROUP BY status")
+        rows = cur.fetchall()
+        
+        stats = {row[0]: row[1] for row in rows} if rows else {"success": 0}
+        
+        cur.execute("SELECT COUNT(*) FROM processing_log")
+        total = cur.fetchone()[0]
+        
+        conn.close()
+        
+        log_audit_event("analytics_fetched", "Retrieved analytics from SQLite (fallback)", "sqlite")
+        
         return {
             "processing_stats": stats,
-            "total_processed": len(logs)
+            "total_processed": total
         }
     except Exception as e:
+        logger.error(f"Both Airtable and SQLite analytics failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/contacts")
@@ -254,6 +309,7 @@ async def get_contacts():
                     "updated_at": last_updated
                 })
         
+        log_audit_event("contacts_fetched", f"Retrieved {len(results)} hotel contacts", "airtable")
         logger.info(f"Returning {len(results)} hotels from merged Hotels + HotelContacts data")
         return results
         
@@ -271,6 +327,72 @@ async def chat_endpoint(request: QueryRequest):
         return {"response": response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+async def health_check():
+    """Health check with data source status."""
+    airtable_status = "disconnected"
+    sqlite_status = "disconnected"
+    
+    try:
+        airtable = AirtableClient()
+        if airtable.is_connected():
+            airtable_status = "connected"
+    except:
+        pass
+    
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.close()
+        sqlite_status = "connected"
+    except:
+        pass
+    
+    return {
+        "status": "healthy",
+        "airtable": airtable_status,
+        "sqlite": sqlite_status,
+        "db_path": str(DB_PATH),
+        "port": 4003
+    }
+
+@app.get("/system-status")
+async def get_system_status():
+    """Get comprehensive system status."""
+    airtable_connected = False
+    sqlite_connected = False
+    
+    try:
+        airtable = AirtableClient()
+        airtable_connected = airtable.is_connected()
+    except:
+        pass
+    
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.close()
+        sqlite_connected = True
+    except:
+        pass
+    
+    return {
+        "airtable": {
+            "status": "connected" if airtable_connected else "disconnected",
+            "enabled": airtable_connected
+        },
+        "sqlite": {
+            "status": "connected" if sqlite_connected else "disconnected",
+            "path": str(DB_PATH),
+            "enabled": sqlite_connected
+        },
+        "active_source": "airtable" if airtable_connected else "sqlite",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/audit-log")
+async def get_audit_log(limit: int = 50):
+    """Get recent audit log entries."""
+    return audit_log[-limit:]
 
 if __name__ == "__main__":
     import uvicorn
