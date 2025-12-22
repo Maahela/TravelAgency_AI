@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 def search_rates(
     hotel_name: Optional[str] = None,
     room_type: Optional[str] = None,
+    meal_plan: Optional[str] = None,  # Added meal_plan argument
     date_range: Optional[tuple] = None,
     occupancy: Optional[str] = None,
     max_rate: Optional[float] = None,
@@ -25,24 +26,19 @@ def search_rates(
     Args:
         hotel_name: Filter by hotel name (partial match)
         room_type: Filter by room type
+        meal_plan: Filter by meal plan (e.g., 'BB', 'HB')
         date_range: Tuple of (start_date, end_date) to search within
         max_rate: Maximum rate per night
         db_path: Path to database
     
     Returns:
         List of matching rate records
-    
-    TODO:
-        - Implement fuzzy search for hotel names
-        - Add sorting options
-        - Implement pagination
-        - Add relevance scoring
     """
     if db_path is None:
         from config import DB_PATH
         db_path = DB_PATH
     
-    logger.info(f"Searching rates: hotel={hotel_name}, room={room_type}")
+    logger.info(f"Searching rates: hotel={hotel_name}, room={room_type}, meal={meal_plan}, max_price={max_rate}")
     
     try:
         # 1. Try Airtable first
@@ -51,18 +47,18 @@ def search_rates(
             airtable = AirtableClient()
             if airtable.is_connected():
                 # Build formula
-                # Example: AND({Hotel Name}="X", {Price}<=Y)
                 formulas = []
                 if hotel_name:
-                    # Case-insensitive search in Airtable
                     formulas.append(f"SEARCH(LOWER('{hotel_name}'), LOWER({{Hotel Name}}))")
                 
+                if meal_plan:
+                    # Flexible search for meal plan code or name
+                    formulas.append(f"OR(SEARCH(LOWER('{meal_plan}'), LOWER({{Meal Plan}})), {{Meal Plan}}='{meal_plan}')")
+
                 if occupancy:
-                    # Flexible occupancy: match field OR room_type containing the word OR empty field
                     formulas.append(f"OR({{Occupancy}}='{occupancy}', SEARCH(LOWER('{occupancy}'), LOWER({{Room Type}})), {{Occupancy}}=BLANK())")
                 
                 if date_range:
-                    # Precise date overlap for Airtable
                     start, end = date_range
                     formulas.append(f"{{Season Start}} <= '{end}'")
                     formulas.append(f"{{Season End}} >= '{start}'")
@@ -73,12 +69,9 @@ def search_rates(
                 if records:
                     logger.info(f"Found {len(records)} rates in Airtable")
                     
-                    # Get room type and meal plan record names
-                    # We need to resolve linked records to get actual names
+                    # Cache room/meal names
                     room_type_cache = {}
                     meal_plan_cache = {}
-                    
-                    # Fetch all room types and meal plans for efficient lookup
                     try:
                         all_room_types = airtable.room_types_table.all()
                         for rt in all_room_types:
@@ -90,11 +83,9 @@ def search_rates(
                     except Exception as e:
                         logger.warning(f"Failed to fetch room types/meal plans cache: {e}")
                     
-                    # Map back to standardized format
                     results = []
                     for r in records:
                         f = r['fields']
-                        # Apply max_rate filter in python since Price is text/number mixed
                         price_str = str(f.get('Price', 0)).replace(',', '').replace('USD', '').replace('LKR', '').strip() or '0'
                         try:
                             price = float(price_str)
@@ -103,7 +94,7 @@ def search_rates(
                         
                         if max_rate and price > max_rate:
                             continue
-                        
+                            
                         # Resolve linked Room Type record to actual name
                         room_type_ids = f.get('Room Type', [])
                         room_type_name = ''
@@ -112,17 +103,21 @@ def search_rates(
                         
                         # Resolve linked Meal Plan record to actual name
                         meal_plan_ids = f.get('Meal Plan', [])
-                        meal_plan_name = ''
+                        resolved_meal_plan_name = ''
                         if isinstance(meal_plan_ids, list) and meal_plan_ids:
-                            meal_plan_name = meal_plan_cache.get(meal_plan_ids[0], 'BB')
-                            
+                            resolved_meal_plan_name = meal_plan_cache.get(meal_plan_ids[0], 'BB')
+                        
+                        # Verify Meal Plan logic if not filtered in API
+                        if meal_plan and meal_plan.lower() not in resolved_meal_plan_name.lower():
+                             continue
+
                         results.append({
                             'hotel_name': f.get('Hotel Name'),
                             'room_type': room_type_name,
-                            'occupancy': f.get('Occupancy'), # Added field
-                            'rate_per_night': price, # Aligning with SQLite's 'rate_per_night'
+                            'occupancy': f.get('Occupancy'),
+                            'rate_per_night': price,
                             'currency': f.get('Currency', 'USD'),
-                            'meal_plan': meal_plan_name,
+                            'meal_plan': resolved_meal_plan_name,
                             'source': 'Airtable',
                             'season_start_date': f.get('Season Start'),
                             'season_end_date': f.get('Season End'),
@@ -134,7 +129,7 @@ def search_rates(
 
         # 2. Fallback to SQLite (Legacy)
         conn = get_db_connection(db_path)
-        conn.row_factory = sqlite3.Row # Ensure we get keyed rows
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
         # Enhanced query with JOINs
@@ -155,12 +150,15 @@ def search_rates(
             params.append(f"%{hotel_name}%")
         
         if room_type:
-            # Check both text column and joined name
             query += " AND (r.room_type LIKE ? OR rt.name LIKE ?)"
             params.extend([f"%{room_type}%", f"%{room_type}%"])
+            
+        if meal_plan:
+             # Check explicit meal plan column or joined name
+            query += " AND (r.meal_plan LIKE ? OR mp.name LIKE ?)"
+            params.extend([f"%{meal_plan}%", f"%{meal_plan}%"])
         
         if occupancy:
-            # Flexible occupancy: match field OR room_type containing the word
             query += " AND (r.occupancy = ? OR r.room_type LIKE ? OR rt.name LIKE ? OR r.occupancy IS NULL)"
             params.extend([occupancy, f"%{occupancy}%", f"%{occupancy}%"])
         
@@ -178,11 +176,10 @@ def search_rates(
         cursor.execute(query, params)
         rows = cursor.fetchall()
         
-        # Normalize results (prefer joined names)
+        # Normalize results
         results = []
         for row in rows:
             d = dict(row)
-            # Override with joined names if present (for 3NF consistency)
             if d.get('joined_room_type'):
                 d['room_type'] = d['joined_room_type']
             if d.get('joined_meal_plan'):

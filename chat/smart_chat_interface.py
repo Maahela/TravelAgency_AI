@@ -23,12 +23,13 @@ class SmartChatInterface:
                         "parameters": {
                             "type": "object",
                             "properties": {
-                                "hotel_name": {"type": "string", "description": "Name of the hotel to search for (e.g., 'Galle Face Hotel')"},
+                                "hotel_name": {"type": "string", "description": "Name of the hotel to search for (optional if searching by budget)"},
                                 "occupancy": {"type": "string", "description": "Occupancy type: 'Single', 'Double', 'Triple', 'Quad'"},
-                                "max_rate": {"type": "number", "description": "Maximum price limit if specified"},
-                                "room_type": {"type": "string", "description": "Specific room type if mentioned (e.g., 'Deluxe', 'Standard')"}
+                                "max_rate": {"type": "number", "description": "Maximum price limit per night (Budget)"},
+                                "room_type": {"type": "string", "description": "Specific room type if mentioned"},
+                                "meal_plan": {"type": "string", "description": "Meal plan filter: 'BB', 'HB', 'FB', 'AI'"}
                             },
-                            "required": ["hotel_name"]
+                            "required": []
                         }
                     },
                     {
