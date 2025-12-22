@@ -241,6 +241,23 @@ This software is proprietary and confidential. Unauthorized copying, distributio
 
 For licensing inquiries, contact the repository owner.
 
+## Demo Screenshots
+
+### Chat Interface - Budget Calculations
+![Chat Interface showing budget calculation with hotel rate queries](screenshots/chat-budget-calculation.png)
+
+### Admin Dashboard - Command Center
+![Dashboard overview showing total rates, price items, and recent extractions](screenshots/dashboard-command-center.png)
+
+### Price Items & Supplements
+![Price Items page displaying meal rates, upgrades, and package pricing](screenshots/price-items-supplements.png)
+
+### Hotel Rates Database
+![Hotel Rates view with searchable table of all extracted rates](screenshots/hotel-rates-database.png)
+
+### Chat Interface - Multi-Room Booking
+![Chat showing complex booking calculation for multiple rooms](screenshots/chat-booking-calculation.png)
+
 ## Additional Documentation
 
 - [DEPLOYMENT.md](DEPLOYMENT.md) - Comprehensive deployment guide for production environments
