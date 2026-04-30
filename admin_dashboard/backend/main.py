@@ -4,6 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Optional
 import os
 import sys
+import os
+import certifi
+
+# Fix for SSL: Set SSL_CERT_FILE to certifi's bundle
+ca_bundle = certifi.where()
+os.environ['SSL_CERT_FILE'] = ca_bundle
+os.environ['REQUESTS_CA_BUNDLE'] = ca_bundle
+os.environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = ca_bundle
 from pydantic import BaseModel
 import sqlite3
 from datetime import datetime
@@ -396,4 +404,4 @@ async def get_audit_log(limit: int = 50):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=4003)
+    uvicorn.run(app, host="0.0.0.0", port=4005)
