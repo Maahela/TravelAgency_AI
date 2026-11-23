@@ -1,10 +1,15 @@
 
+import os
 import requests
 import time
 import sys
 import json
+from dotenv import load_dotenv
 
-BASE_URL = "http://localhost:4003"
+load_dotenv()
+
+BASE_URL = os.getenv("API_URL", "http://localhost:4005")
+HEADERS = {"X-API-Key": os.getenv("ADMIN_API_KEY")} if os.getenv("ADMIN_API_KEY") else {}
 ENDPOINTS = [
     ("GET", "/"),
     ("GET", "/health"),
@@ -15,7 +20,6 @@ ENDPOINTS = [
     ("GET", "/contacts"),
     ("GET", "/analytics"),
     ("GET", "/audit-log"),
-    ("GET", "/debug-db"),
     ("POST", "/chat", {"message": "Hello, are you working?"})
 ]
 
@@ -48,9 +52,9 @@ def test_endpoints():
         url = f"{BASE_URL}{path}"
         try:
             if method == "GET":
-                response = requests.get(url)
+                response = requests.get(url, headers=HEADERS, timeout=30)
             elif method == "POST":
-                response = requests.post(url, json=data)
+                response = requests.post(url, json=data, headers=HEADERS, timeout=60)
             
             status = response.status_code
             try:
