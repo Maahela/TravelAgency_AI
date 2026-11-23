@@ -42,26 +42,26 @@ def search_rates(
     
     try:
         # 1. Try Airtable first
-        from database.airtable_client import AirtableClient
+        from database.airtable_client import AirtableClient, formula_str as q
         try:
             airtable = AirtableClient()
             if airtable.is_connected():
-                # Build formula
+                # Build formula (all user/LLM-supplied values are escaped via q())
                 formulas = []
                 if hotel_name:
-                    formulas.append(f"SEARCH(LOWER('{hotel_name}'), LOWER({{Hotel Name}}))")
-                
+                    formulas.append(f"SEARCH(LOWER({q(hotel_name)}), LOWER({{Hotel Name}}))")
+
                 if meal_plan:
                     # Flexible search for meal plan code or name
-                    formulas.append(f"OR(SEARCH(LOWER('{meal_plan}'), LOWER({{Meal Plan}})), {{Meal Plan}}='{meal_plan}')")
+                    formulas.append(f"OR(SEARCH(LOWER({q(meal_plan)}), LOWER({{Meal Plan}})), {{Meal Plan}}={q(meal_plan)})")
 
                 if occupancy:
-                    formulas.append(f"OR({{Occupancy}}='{occupancy}', SEARCH(LOWER('{occupancy}'), LOWER({{Room Type}})), {{Occupancy}}=BLANK())")
-                
+                    formulas.append(f"OR({{Occupancy}}={q(occupancy)}, SEARCH(LOWER({q(occupancy)}), LOWER({{Room Type}})), {{Occupancy}}=BLANK())")
+
                 if date_range:
                     start, end = date_range
-                    formulas.append(f"{{Season Start}} <= '{end}'")
-                    formulas.append(f"{{Season End}} >= '{start}'")
+                    formulas.append(f"{{Season Start}} <= {q(end)}")
+                    formulas.append(f"{{Season End}} >= {q(start)}")
                 
                 formula = f"AND({', '.join(formulas)})" if formulas else None
                 

@@ -109,9 +109,11 @@ def test_generate_rate_request():
     assert "Seaside Resort" in body, "Hotel name missing"
     assert "Winter 2025/2026" in body, "Season info missing"
     
-    # Check for static template parts
-    assert "Maahela Weerasinghe" in body, "Sender name missing"
-    assert "JAK Travels" in body, "Agency name missing"
+    # Check for sender details (configured via .env)
+    from html import escape
+    from config import SENDER_NAME, AGENCY_NAME
+    assert escape(SENDER_NAME) in body, "Sender name missing"
+    assert escape(AGENCY_NAME) in body, "Agency name missing"
     assert "Nett contracted rates" in body, "Core request missing"
     assert "validity periods" in body.lower(), "Validity missing"
     

@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: admin_dashboard/backend/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /app/data/rates.db
+      ATTACHMENTS_DIR: /app/data/attachments
+      ARCHIVE_DIR: /app/data/archive
+      TESSERACT_PATH: /usr/bin/tesseract
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    ports:
+      # Published on localhost only; the API has no auth unless ADMIN_API_KEY is set
+      - "127.0.0.1:4005:4005"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: admin_dashboard/frontend/Dockerfile
+      args:
+        # Called from the user's browser, so it must be a host-reachable URL
+        NEXT_PUBLIC_API_URL: http://localhost:4005
+        NEXT_PUBLIC_ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:3000:3000"

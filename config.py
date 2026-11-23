@@ -73,6 +73,13 @@ AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME", "rates")
 
+# Agency / sender details used in outgoing email templates.
+# Kept in .env so personal contact details are not hardcoded in the repo.
+AGENCY_NAME = os.getenv("AGENCY_NAME", "Your Travel Agency")
+SENDER_NAME = os.getenv("SENDER_NAME", "Reservations Team")
+SENDER_PHONE = os.getenv("SENDER_PHONE", "")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "reservations@example.com")
+
 # Notification Settings
 NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL")
 ENABLE_NOTIFICATIONS = os.getenv("ENABLE_NOTIFICATIONS", "true").lower() == "true"

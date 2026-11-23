@@ -1,11 +1,16 @@
 import axios from "axios";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4003";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4005";
+
+// Optional: must match ADMIN_API_KEY on the backend. NEXT_PUBLIC_* values are
+// embedded in the browser bundle, so this guards a local/demo deployment only.
+const API_KEY = process.env.NEXT_PUBLIC_ADMIN_API_KEY;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
+    ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
   },
 });
 
@@ -25,7 +30,7 @@ export const getPriceItems = async (hotel?: string) => {
 };
 
 export const updateRate = async (rateId: string, data: any) => {
-  const response = await api.put(`/rates/${rateId}`, data);
+  const response = await api.put(`/rates/${encodeURIComponent(rateId)}`, data);
   return response.data;
 };
 

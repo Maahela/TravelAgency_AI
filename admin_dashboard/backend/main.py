@@ -1,10 +1,10 @@
 
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Depends, Header, Path, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Optional
 import os
 import sys
-import os
+import secrets
 import certifi
 
 # Fix for SSL: Set SSL_CERT_FILE to certifi's bundle
@@ -12,7 +12,7 @@ ca_bundle = certifi.where()
 os.environ['SSL_CERT_FILE'] = ca_bundle
 os.environ['REQUESTS_CA_BUNDLE'] = ca_bundle
 os.environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = ca_bundle
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import sqlite3
 from datetime import datetime
 
@@ -28,20 +28,50 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-app = FastAPI(title="JAKEmailBot Admin API")
+# ============================================
+# Security configuration
+# ============================================
+# Optional shared secret. When ADMIN_API_KEY is set, every endpoint except "/" and
+# "/health" requires a matching X-API-Key header.
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
 
-# Enable CORS for Next.js frontend
+# Comma-separated list of origins allowed to call the API from a browser.
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+    if o.strip()
+]
+
+
+def require_api_key(x_api_key: Optional[str] = Header(default=None)):
+    """Reject requests without a valid X-API-Key header when ADMIN_API_KEY is configured."""
+    if not ADMIN_API_KEY:
+        return
+    if not x_api_key or not secrets.compare_digest(x_api_key, ADMIN_API_KEY):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+def server_error(context: str, exc: Exception) -> HTTPException:
+    """Log the full error server-side but return a generic message to the client."""
+    logger.exception(f"{context}: {exc}")
+    return HTTPException(status_code=500, detail=f"{context}. See server logs for details.")
+
+
+app = FastAPI(title="JAKEmailBot Admin API")
+protected = [Depends(require_api_key)]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, restrict this
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
-# Log DB path for debugging
+if not ADMIN_API_KEY:
+    logger.warning("ADMIN_API_KEY is not set: the admin API is unauthenticated. Only run it on localhost.")
+
 from config import DB_PATH
-logger.info(f"Backend using DB_PATH: {DB_PATH}")
 logger.info(f"DB exists: {DB_PATH.exists()}")
 
 # Initialize Chat Interface
@@ -75,41 +105,20 @@ def log_audit_event(event_type: str, details: str, data_source: str = "unknown")
     logger.info(f"AUDIT: {event_type} - {details} (source: {data_source})")
 
 class QueryRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=2000)
 
 class RateUpdate(BaseModel):
-    hotel_name: Optional[str] = None
-    room_type: Optional[str] = None
-    price: Optional[str] = None
-    currency: Optional[str] = None
-    meal_plan: Optional[str] = None
+    hotel_name: Optional[str] = Field(default=None, max_length=200)
+    room_type: Optional[str] = Field(default=None, max_length=200)
+    price: Optional[str] = Field(default=None, max_length=50)
+    currency: Optional[str] = Field(default=None, max_length=10)
+    meal_plan: Optional[str] = Field(default=None, max_length=50)
 
 @app.get("/")
 async def root():
     return {"status": "online", "message": "JAKEmailBot Admin API is running"}
 
-@app.get("/debug-db")
-async def debug_db():
-    """Debug endpoint to show DB path"""
-    from config import DB_PATH, BASE_DIR, DATA_DIR
-    import sqlite3
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = [t[0] for t in cur.fetchall()]
-        conn.close()
-        return {
-            "BASE_DIR": str(BASE_DIR),
-            "DATA_DIR": str(DATA_DIR),
-            "DB_PATH": str(DB_PATH),
-            "DB_exists": DB_PATH.exists(),
-            "tables": tables
-        }
-    except Exception as e:
-        return {"error": str(e), "DB_PATH": str(DB_PATH)}
-
-@app.get("/stats")
+@app.get("/stats", dependencies=protected)
 async def get_stats():
     """Get statistics with Airtable/SQLite fallback."""
     data_source = "unknown"
@@ -172,28 +181,30 @@ async def get_stats():
             "data_source": data_source
         }
     except Exception as e:
-        logger.error(f"Both Airtable and SQLite failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise server_error("Failed to load statistics", e)
 
-@app.get("/rates")
-async def get_rates(hotel: Optional[str] = None):
+@app.get("/rates", dependencies=protected)
+async def get_rates(hotel: Optional[str] = Query(default=None, max_length=200)):
     try:
         rates = search_rates(hotel_name=hotel)
         log_audit_event("rates_queried", f"Queried rates for: {hotel or 'all hotels'}", "sqlite")
         return rates[:100] # Limit to 100 for dashboard
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise server_error("Failed to load rates", e)
 
-@app.get("/price-items")
-async def get_price_items(hotel: Optional[str] = None):
+@app.get("/price-items", dependencies=protected)
+async def get_price_items(hotel: Optional[str] = Query(default=None, max_length=200)):
     try:
         items = search_price_items(hotel_name=hotel)
         return items[:100]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise server_error("Failed to load price items", e)
 
-@app.put("/rates/{rate_id}")
-async def update_rate(rate_id: str, update: RateUpdate):
+@app.put("/rates/{rate_id}", dependencies=protected)
+async def update_rate(
+    update: RateUpdate,
+    rate_id: str = Path(..., pattern=r"^rec[A-Za-z0-9]{14}$"),
+):
     """Update a rate in Airtable."""
     try:
         airtable = AirtableClient()
@@ -204,11 +215,12 @@ async def update_rate(rate_id: str, update: RateUpdate):
             fields["Hotel Name"] = update.hotel_name
             
         airtable.rates_table.update(rate_id, fields)
+        log_audit_event("rate_updated", f"Updated rate {rate_id}", "airtable")
         return {"status": "success", "message": f"Rate {rate_id} updated"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise server_error("Failed to update rate", e)
 
-@app.get("/analytics")
+@app.get("/analytics", dependencies=protected)
 async def get_analytics():
     """Get extraction trends with Airtable/SQLite fallback."""
     # Try Airtable first
@@ -255,10 +267,9 @@ async def get_analytics():
             "total_processed": total
         }
     except Exception as e:
-        logger.error(f"Both Airtable and SQLite analytics failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise server_error("Failed to load analytics", e)
 
-@app.get("/contacts")
+@app.get("/contacts", dependencies=protected)
 async def get_contacts():
     """Get hotel contacts by merging Hotels and HotelContacts tables."""
     try:
@@ -321,20 +332,19 @@ async def get_contacts():
         logger.info(f"Returning {len(results)} hotels from merged Hotels + HotelContacts data")
         return results
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error in get_contacts: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+        raise server_error("Failed to load contacts", e)
 
-@app.post("/chat")
+@app.post("/chat", dependencies=protected)
 async def chat_endpoint(request: QueryRequest):
     """Integrated Chat Interface endpoint."""
     try:
         response = chat_bot.query(request.message)
         return {"response": response}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise server_error("Chat request failed", e)
 
 @app.get("/health")
 async def health_check():
@@ -346,25 +356,23 @@ async def health_check():
         airtable = AirtableClient()
         if airtable.is_connected():
             airtable_status = "connected"
-    except:
+    except Exception:
         pass
-    
+
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.close()
         sqlite_status = "connected"
-    except:
+    except Exception:
         pass
-    
+
     return {
         "status": "healthy",
         "airtable": airtable_status,
         "sqlite": sqlite_status,
-        "db_path": str(DB_PATH),
-        "port": 4003
     }
 
-@app.get("/system-status")
+@app.get("/system-status", dependencies=protected)
 async def get_system_status():
     """Get comprehensive system status."""
     airtable_connected = False
@@ -373,16 +381,16 @@ async def get_system_status():
     try:
         airtable = AirtableClient()
         airtable_connected = airtable.is_connected()
-    except:
+    except Exception:
         pass
-    
+
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.close()
         sqlite_connected = True
-    except:
+    except Exception:
         pass
-    
+
     return {
         "airtable": {
             "status": "connected" if airtable_connected else "disconnected",
@@ -390,18 +398,18 @@ async def get_system_status():
         },
         "sqlite": {
             "status": "connected" if sqlite_connected else "disconnected",
-            "path": str(DB_PATH),
             "enabled": sqlite_connected
         },
         "active_source": "airtable" if airtable_connected else "sqlite",
         "timestamp": datetime.now().isoformat()
     }
 
-@app.get("/audit-log")
-async def get_audit_log(limit: int = 50):
+@app.get("/audit-log", dependencies=protected)
+async def get_audit_log(limit: int = Query(default=50, ge=1, le=100)):
     """Get recent audit log entries."""
     return audit_log[-limit:]
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=4005)
+    # Bind to localhost by default; set API_HOST=0.0.0.0 only behind auth/a proxy
+    uvicorn.run(app, host=os.getenv("API_HOST", "127.0.0.1"), port=int(os.getenv("API_PORT", "4005")))

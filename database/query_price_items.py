@@ -26,15 +26,15 @@ def search_price_items(
     
     try:
         # 1. Try Airtable first
-        from database.airtable_client import AirtableClient
+        from database.airtable_client import AirtableClient, formula_str as q
         try:
             airtable = AirtableClient()
             if airtable.is_connected():
                 formulas = []
                 if hotel_name:
-                    formulas.append(f"SEARCH(LOWER('{hotel_name}'), LOWER({{Hotel Name}}))")
+                    formulas.append(f"SEARCH(LOWER({q(hotel_name)}), LOWER({{Hotel Name}}))")
                 if category:
-                    formulas.append(f"{{Category}}='{category}'")
+                    formulas.append(f"{{Category}}={q(category)}")
                 
                 formula = f"AND({', '.join(formulas)})" if formulas else None
                 records = airtable.price_items_table.all(formula=formula)

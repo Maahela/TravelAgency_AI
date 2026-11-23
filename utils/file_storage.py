@@ -3,6 +3,7 @@ File storage utilities for handling email attachments.
 """
 
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Optional, List, Tuple
@@ -20,6 +21,24 @@ class FileSizeError(Exception):
 class FileSecurityError(Exception):
     """Raised when file fails security validation."""
     pass
+
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Reduce an untrusted filename (e.g. from an email attachment) to a safe basename.
+
+    Strips any directory components (both / and \\), replaces characters outside a
+    conservative allow-list, and rejects names that are empty or only dots.
+    """
+    # Drop any path components, regardless of the sender's OS conventions
+    name = re.split(r"[\\/]", filename or "")[-1]
+    # Keep letters, digits, dot, dash, underscore and space
+    name = re.sub(r"[^A-Za-z0-9._\- ]", "_", name).strip(" .")
+    if not name:
+        raise FileSecurityError(f"Invalid filename: {filename!r}")
+    # Keep names to a sane length while preserving the extension
+    stem, ext = os.path.splitext(name)
+    return stem[:150] + ext[:10]
 
 
 def validate_file_size(file_data: bytes, filename: str) -> None:
@@ -124,6 +143,9 @@ def save_attachment(
         FileSizeError: If file size exceeds maximum allowed
         FileSecurityError: If file fails security validation
     """
+    # Attachment names come from external senders: never trust them as paths
+    filename = sanitize_filename(filename)
+
     # Perform security validations
     validate_file_size(file_data, filename)
     validate_file_extension(filename)
@@ -145,7 +167,11 @@ def save_attachment(
         name, ext = os.path.splitext(filename)
         file_path = save_dir / f"{name}_{counter}{ext}"
         counter += 1
-    
+
+    # Defence in depth: the final path must stay inside the storage directory
+    if save_dir.resolve() not in file_path.resolve().parents:
+        raise FileSecurityError(f"Refusing to write outside storage directory: {filename!r}")
+
     # Save file
     try:
         with open(file_path, 'wb') as f:

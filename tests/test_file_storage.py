@@ -134,6 +134,25 @@ def test_save_attachment():
         print(f"✓ Executable correctly rejected")
 
 
+def test_save_attachment_blocks_path_traversal(tmp_path):
+    """Attachment names from senders must not be able to escape the storage dir."""
+    from utils.file_storage import sanitize_filename
+
+    pdf_content = b"%PDF-1.4\nTraversal test"
+    for evil in ["../../evil.pdf", "..\\..\\evil.pdf", "/etc/evil.pdf", "C:\\Windows\\evil.pdf"]:
+        saved = save_attachment(pdf_content, evil, base_dir=tmp_path)
+        assert tmp_path.resolve() in saved.resolve().parents
+        assert saved.name.startswith("evil") and saved.suffix == ".pdf"
+        assert saved.parent.parent == tmp_path
+
+    for bad in ["", "..", "../", "...."]:
+        try:
+            sanitize_filename(bad)
+            assert False, f"{bad!r} should be rejected"
+        except FileSecurityError:
+            pass
+
+
 def test_cleanup_and_archive():
     """Test file cleanup and archiving."""
     print("\n=== Testing Cleanup and Archive ===")

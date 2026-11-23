@@ -10,6 +10,9 @@ def sync_contacts():
     print("--- DEBUG SYNC START ---", flush=True)
     try:
         airtable = AirtableClient()
+        if not airtable.is_connected():
+            print("Airtable not configured; skipping contact sync.", flush=True)
+            return
         manager = HotelManager()
         print(f"DB Path: {manager.db_path}", flush=True)
         

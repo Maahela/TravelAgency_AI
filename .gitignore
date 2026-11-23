@@ -45,6 +45,12 @@ venv.bak/
 # IMPORTANT: Keep .env.example
 !.env.example
 
+# MSAL / OAuth token caches (contain mailbox refresh tokens)
+.token_cache.bin
+*.token_cache*
+*.pem
+*.key
+
 # ============================================
 # Database Files
 # ============================================

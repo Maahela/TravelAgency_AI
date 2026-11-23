@@ -13,6 +13,20 @@ logger = get_logger(__name__)
 # Load env in case it's not loaded
 load_dotenv()
 
+
+def formula_str(value) -> str:
+    """
+    Escape a value for use as a single-quoted string literal in an Airtable formula.
+
+    Values reaching formulas come from chat input, LLM output and parsed emails, so
+    they must never be able to close the string and inject formula logic.
+    """
+    s = str(value)
+    s = s.replace("\\", "\\\\").replace("'", "\\'")
+    # Newlines can't appear in a formula literal; collapse them
+    s = s.replace("\r", " ").replace("\n", " ")
+    return f"'{s}'"
+
 class AirtableClient:
     """
     Wrapper for Airtable API operations.
@@ -66,7 +80,7 @@ class AirtableClient:
             
         try:
             # Check if exists
-            formula = f"{{Name}}='{hotel_name}'"
+            formula = f"{{Name}}={formula_str(hotel_name)}"
             existing = self.hotels_table.all(formula=formula)
             
             if existing:
@@ -91,8 +105,7 @@ class AirtableClient:
             
         try:
             # Check if exists for this hotel
-            safe_name = room_type_name.replace("'", "\\'")
-            formula = f"AND({{Name}}='{safe_name}', {{Hotel}}='{hotel_id}')"
+            formula = f"AND({{Name}}={formula_str(room_type_name)}, {{Hotel}}={formula_str(hotel_id)})"
             
             existing = self.room_types_table.all(formula=formula)
             
@@ -157,8 +170,7 @@ class AirtableClient:
                 # Let's keep original if we don't know it.
         
         try:
-            safe_name = final_name.replace("'", "\\'")
-            formula = f"{{Name}}='{safe_name}'"
+            formula = f"{{Name}}={formula_str(final_name)}"
             existing = self.meal_plans_table.all(formula=formula)
             
             if existing:
@@ -298,7 +310,7 @@ class AirtableClient:
             
         try:
             # Check if contact already exists by Email
-            formula = f"{{Email}}='{email}'"
+            formula = f"{{Email}}={formula_str(email)}"
             existing = self.contacts_table.all(formula=formula)
             
             record = {

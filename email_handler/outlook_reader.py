@@ -46,16 +46,23 @@ class OutlookReader:
         
         try:
             # 1. Setup Token Caching
-            cache_file = ".token_cache.bin"
+            # The cache holds OAuth refresh tokens with mailbox access. It is
+            # gitignored/dockerignored and written with owner-only permissions.
+            cache_file = os.getenv("TOKEN_CACHE_PATH", ".token_cache.bin")
             cache = SerializableTokenCache()
-            
+
             if os.path.exists(cache_file):
-                cache.deserialize(open(cache_file, "r").read())
-                
+                with open(cache_file, "r") as f:
+                    cache.deserialize(f.read())
+
+            def _save_cache():
+                if cache.has_state_changed:
+                    fd = os.open(cache_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                    with os.fdopen(fd, "w") as f:
+                        f.write(cache.serialize())
+
             # Auto-save cache on exit
-            atexit.register(lambda: 
-                open(cache_file, "w").write(cache.serialize()) if cache.has_state_changed else None
-            )
+            atexit.register(_save_cache)
 
             # 2. Initialize MSAL with Cache
             authority = "https://login.microsoftonline.com/common"

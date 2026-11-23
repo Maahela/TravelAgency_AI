@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Activity, Database, Cloud, AlertCircle, CheckCircle, XCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { getAuditLog, getSystemStatus } from "@/services/api";
 
 interface AuditEvent {
   timestamp: string;
@@ -13,7 +14,7 @@ interface AuditEvent {
 
 interface SystemStatus {
   airtable: { status: string; enabled: boolean };
-  sqlite: { status: string; enabled: boolean; path: string };
+  sqlite: { status: string; enabled: boolean };
   active_source: string;
   timestamp: string;
 }
@@ -25,13 +26,14 @@ export default function ActivityLog() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [auditRes, statusRes] = await Promise.all([
-          fetch("http://localhost:4003/audit-log?limit=20"),
-          fetch("http://localhost:4003/system-status")
+        // Shared API client: correct base URL and auth header
+        const [audit, status] = await Promise.all([
+          getAuditLog(20),
+          getSystemStatus(),
         ]);
-        
-        if (auditRes.ok) setEvents(await auditRes.json());
-        if (statusRes.ok) setSystemStatus(await statusRes.json());
+
+        setEvents(audit);
+        setSystemStatus(status);
       } catch (err) {
         console.error("Failed to fetch activity data", err);
       }

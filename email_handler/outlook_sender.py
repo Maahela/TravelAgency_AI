@@ -3,6 +3,7 @@ Outlook email sender using Microsoft Graph API.
 Handles creating and sending draft emails.
 """
 
+from html import escape
 from typing import List, Optional, Dict
 from utils.logger import get_logger
 
@@ -163,17 +164,28 @@ class OutlookSender:
         Returns:
             Dictionary with 'subject' and 'body' keys
         """
+        from config import AGENCY_NAME, SENDER_NAME, SENDER_PHONE, SENDER_EMAIL
+
         logger.info(f"Generating rate request content for {hotel_name}...")
-        
+
         # Extract dynamic details from requested_details
         season_info = requested_details.get('season', 'the relevant season(s)')
-        
+
+        # Hotel names and seasons come from web discovery / LLM output: escape for HTML
+        hotel_html = escape(str(hotel_name))
+        season_html = escape(str(season_info))
+        agency = escape(AGENCY_NAME)
+        sender = escape(SENDER_NAME)
+        sender_email = escape(SENDER_EMAIL)
+        phone_line = f"<strong>Phone / WhatsApp:</strong> {escape(SENDER_PHONE)}<br>" if SENDER_PHONE else ""
+        phone_sig = f"📞 {escape(SENDER_PHONE)}<br>" if SENDER_PHONE else ""
+
         # =========================================================================
         # EMAIL TEMPLATE - EDIT HERE to customize the rate request email
         # =========================================================================
-        
-        email_subject = f"Contract Rate Request - {hotel_name} - JAK Travels"
-        
+
+        email_subject = f"Contract Rate Request - {hotel_name} - {AGENCY_NAME}"
+
         email_body = f"""
         <html>
         <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
@@ -182,9 +194,9 @@ class OutlookSender:
                 
                 <p>I hope this email finds you well.</p>
                 
-                <p>My name is <strong>Maahela Weerasinghe</strong>, representing <strong>JAK Travels</strong>. We handle FIT and small group travel and are currently updating our hotel database in preparation for upcoming bookings.</p>
-                
-                <p>We would like to kindly request your <strong>contracted travel agent rates</strong> for <strong>{hotel_name}</strong> for {season_info}.</p>
+                <p>My name is <strong>{sender}</strong>, representing <strong>{agency}</strong>. We handle FIT and small group travel and are currently updating our hotel database in preparation for upcoming bookings.</p>
+
+                <p>We would like to kindly request your <strong>contracted travel agent rates</strong> for <strong>{hotel_html}</strong> for {season_html}.</p>
                 
                 <p>If possible, could you please share:</p>
                 
@@ -202,10 +214,10 @@ class OutlookSender:
                 <p>Our details are below for your reference:</p>
                 
                 <p>
-                    <strong>Agency Name:</strong> JAK Travels<br>
-                    <strong>Contact Person:</strong> Maahela Weerasinghe<br>
-                    <strong>Phone / WhatsApp:</strong> REDACTED_PHONE<br>
-                    <strong>Email:</strong> <a href="mailto:MaahelaWeerasinghe@JAKTravels.onmicrosoft.com">MaahelaWeerasinghe@JAKTravels.onmicrosoft.com</a>
+                    <strong>Agency Name:</strong> {agency}<br>
+                    <strong>Contact Person:</strong> {sender}<br>
+                    {phone_line}
+                    <strong>Email:</strong> <a href="mailto:{sender_email}">{sender_email}</a>
                 </p>
                 
                 <p>We look forward to the possibility of working together and including your property in our itineraries.</p>
@@ -214,10 +226,10 @@ class OutlookSender:
                 
                 <p>
                     Kind regards,<br>
-                    <strong>Maahela Weerasinghe</strong><br>
-                    JAK Travels<br>
-                    📞 REDACTED_PHONE<br>
-                    ✉️ <a href="mailto:MaahelaWeerasinghe@JAKTravels.onmicrosoft.com">MaahelaWeerasinghe@JAKTravels.onmicrosoft.com</a>
+                    <strong>{sender}</strong><br>
+                    {agency}<br>
+                    {phone_sig}
+                    ✉️ <a href="mailto:{sender_email}">{sender_email}</a>
                 </p>
             </div>
         </body>
@@ -247,9 +259,14 @@ class OutlookSender:
         Returns:
             Dictionary with 'subject' and 'body' keys
         """
+        from config import AGENCY_NAME, SENDER_EMAIL
+
         logger.info(f"Generating client quote email for {client_name}")
-        
+
         hotel_name = rate_data.get('hotel_name', 'Requested Hotel')
+        # All of these values originate from parsed emails / LLM output
+        hotel_html = escape(str(hotel_name))
+        client_html = escape(str(client_name))
         
         # Format rates into an HTML table rows
         # Expecting rate_data['rates'] to be a list of dicts or similar structure
@@ -260,10 +277,10 @@ class OutlookSender:
         if isinstance(rates, list):
             for rate in rates:
                 # Adjust keys based on your actual rate_data structure
-                room_type = rate.get('room_type', 'Standard Room')
-                meal_plan = rate.get('meal_plan', 'BB')
-                price = rate.get('price', 'N/A')
-                currency = rate.get('currency', 'USD')
+                room_type = escape(str(rate.get('room_type', 'Standard Room')))
+                meal_plan = escape(str(rate.get('meal_plan', 'BB')))
+                price = escape(str(rate.get('price', 'N/A')))
+                currency = escape(str(rate.get('currency', 'USD')))
                 
                 rates_html += f"""
                 <tr>
@@ -276,9 +293,9 @@ class OutlookSender:
              for room_type, price in rates.items():
                 rates_html += f"""
                 <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{room_type}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{escape(str(room_type))}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #ddd;">-</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{price}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{escape(str(price))}</td>
                 </tr>
                 """
 
@@ -294,9 +311,9 @@ class OutlookSender:
             <div style="max-width: 600px; margin: 0 auto;">
                 <h2 style="color: #2c3e50;">Hotel Quote Proposal</h2>
                 
-                <p>Dear {client_name},</p>
-                
-                <p>Thank you for your inquiry. We are pleased to provide the following rates for your stay at <strong>{hotel_name}</strong>.</p>
+                <p>Dear {client_html},</p>
+
+                <p>Thank you for your inquiry. We are pleased to provide the following rates for your stay at <strong>{hotel_html}</strong>.</p>
                 
                 <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
                     <thead>
@@ -324,8 +341,8 @@ class OutlookSender:
                 
                 <p style="margin-top: 30px;">
                     Best regards,<br>
-                    <strong>JAKEmailBot Reservations Team</strong><br>
-                    <a href="mailto:reservations@example.com" style="color: #0056b3;">reservations@example.com</a>
+                    <strong>{escape(AGENCY_NAME)} Reservations Team</strong><br>
+                    <a href="mailto:{escape(SENDER_EMAIL)}" style="color: #0056b3;">{escape(SENDER_EMAIL)}</a>
                 </p>
             </div>
         </body>

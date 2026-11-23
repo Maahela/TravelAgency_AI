@@ -1,0 +1,31 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+logs
+screenshots
+admin_dashboard/frontend/.next
+admin_dashboard/frontend/node_modules
+admin_dashboard/backend/__pycache__
+
+# Secrets: never bake into an image (supply via env_file / runtime env instead)
+.env
+.env.*
+!.env.example
+*.env
+.token_cache.bin
+*.token_cache*
+*.pem
+*.key
+
+# Local data (mounted as a volume at runtime)
+data
+*.db
+*.sqlite
+*.sqlite3

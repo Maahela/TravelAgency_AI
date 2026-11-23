@@ -16,7 +16,7 @@ def test_workflow():
     manager = HotelManager()
     manager.add_hotel(
         name="Test Hotel Workflow",
-        email="maahelachan@gmail.com", # Use safe test email or a dummy one if offline
+        email="test-hotel@example.com",  # Reserved test domain: never a real inbox
         contact_person="Test Manager"
     )
     
