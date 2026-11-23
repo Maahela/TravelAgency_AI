@@ -1,5 +1,5 @@
 """
-Airtable Client forJAKEmailBot.
+Airtable Client for JAKEmailBot.
 Handles connection and CRUD operations for the Airtable backend.
 """
 import os

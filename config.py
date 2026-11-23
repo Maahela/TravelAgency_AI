@@ -54,7 +54,6 @@ GOOGLE_SEARCH_CX = os.getenv("GOOGLE_SEARCH_CX")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
 
 # OCR Configuration
-# OCR Configuration
 # Default to standard Windows path if not set
 TESSERACT_PATH = os.getenv("TESSERACT_PATH", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 
@@ -98,7 +97,6 @@ FILE_RETENTION_DAYS = int(os.getenv("FILE_RETENTION_DAYS", "30"))  # Days to kee
 ARCHIVE_DIR = Path(os.getenv("ARCHIVE_DIR", "./data/archive"))  # Archive directory
 ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Microsoft Graph API Scopes
 # Microsoft Graph API Scopes
 GRAPH_SCOPES = [
     "User.Read",
